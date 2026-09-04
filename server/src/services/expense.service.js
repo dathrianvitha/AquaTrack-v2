@@ -25,22 +25,50 @@ export const createExpense = async (
     const farm =
         await getUserFarm(userId);
 
+    let tank;
 
-    const tank =
-        await getUserTank(
+    if (expenseData.tankId) {
+        tank = await prisma.tank.findFirst({
+            where: {
+                id: expenseData.tankId,
+                site: {
+                    farmId: farm.id
+                }
+            },
+            include: {
+                site: true
+            }
+        });
+    }
 
+    if (!tank && expenseData.siteId) {
+        tank = await prisma.tank.findFirst({
+            where: {
+                siteId: expenseData.siteId,
+                site: {
+                    farmId: farm.id
+                }
+            },
+            include: {
+                site: true
+            }
+        });
+    }
+
+    if (!tank && expenseData.tankId) {
+        tank = await getUserTank(
             farm.id,
-
             expenseData.tankId
-
         );
+    }
 
+    if (!tank) {
+        throw new Error("Tank or Site not found.");
+    }
 
     const crop =
         await getActiveCrop(
-
             tank.id
-
         );
 
 

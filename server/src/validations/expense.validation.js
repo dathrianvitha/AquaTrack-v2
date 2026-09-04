@@ -15,9 +15,11 @@ export const paymentModes = [
     "UPI"
 ];
 
-export const createExpenseSchema = z.object({
+const baseExpenseSchema = z.object({
 
-    tankId: z.string().min(1, "Tank is required"),
+    tankId: z.string().optional(),
+
+    siteId: z.string().optional(),
 
     category: z.enum(expenseCategories),
 
@@ -33,4 +35,12 @@ export const createExpenseSchema = z.object({
 
 });
 
-export const updateExpenseSchema = createExpenseSchema.partial();
+export const createExpenseSchema = baseExpenseSchema.refine(
+    (data) => data.tankId || data.siteId,
+    {
+        message: "Tank or Site is required",
+        path: ["tankId"]
+    }
+);
+
+export const updateExpenseSchema = baseExpenseSchema.partial();
