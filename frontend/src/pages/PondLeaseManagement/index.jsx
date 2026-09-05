@@ -13,15 +13,18 @@ import { EmptyState } from '../../components/EmptyState';
 
 import { usePondLeases } from '../../context/PondLeaseContext';
 import { useTanks } from '../../context/TankContext';
+import { useSites } from '../../context/SiteContext';
 
 export default function PondLeaseManagement() {
   const navigate = useNavigate();
   const { leases, loading, addLease, updateLease, deleteLease, getLeaseCropAllocations } = usePondLeases();
   const { tanks } = useTanks();
+  const { sites = [] } = useSites();
 
   // Modals & Active View State
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLease, setEditingLease] = useState(null);
+  const [activeTab, setActiveTab] = useState('siteLease'); // 'siteLease' (First Tab) or 'pondLease' (Second Tab)
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
@@ -31,7 +34,19 @@ export default function PondLeaseManagement() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form inputs state
+  // First Tab State: Site Lease Details
+  const [siteFormData, setSiteFormData] = useState({
+    siteId: '',
+    acres: '1',
+    amountPerAcre: '',
+    leaseStartDate: '',
+    leaseEndDate: '',
+    remarks: '',
+    notes: '',
+  });
+  const [siteFormError, setSiteFormError] = useState('');
+
+  // Second Tab State: Existing Pond Lease Form
   const [formData, setFormData] = useState({
     tankId: '',
     totalLeaseAmount: '',
@@ -41,6 +56,49 @@ export default function PondLeaseManagement() {
   });
 
   const [formError, setFormError] = useState('');
+
+  // Calculate total site lease amount safely: No. of Acres * Amount Per Acre
+  const calculateSiteTotal = (acres, amountPerAcre) => {
+    const a = parseFloat(acres);
+    const cost = parseFloat(amountPerAcre);
+    if (!isNaN(a) && !isNaN(cost) && a > 0 && cost > 0) {
+      return Math.round(a * cost * 100) / 100;
+    }
+    return null;
+  };
+
+  // Live Reactive synchronization: update second tab Total Lease Amount whenever acres or amount per acre changes
+  useEffect(() => {
+    const total = calculateSiteTotal(siteFormData.acres, siteFormData.amountPerAcre);
+    if (total !== null) {
+      setFormData((prev) => ({
+        ...prev,
+        totalLeaseAmount: String(total),
+      }));
+    }
+  }, [siteFormData.acres, siteFormData.amountPerAcre]);
+
+  const handleAcresChange = (val) => {
+    setSiteFormData((prev) => {
+      const updated = { ...prev, acres: val };
+      const total = calculateSiteTotal(val, prev.amountPerAcre);
+      if (total !== null) {
+        setFormData((fPrev) => ({ ...fPrev, totalLeaseAmount: String(total) }));
+      }
+      return updated;
+    });
+  };
+
+  const handleAmountPerAcreChange = (val) => {
+    setSiteFormData((prev) => {
+      const updated = { ...prev, amountPerAcre: val };
+      const total = calculateSiteTotal(prev.acres, val);
+      if (total !== null) {
+        setFormData((fPrev) => ({ ...fPrev, totalLeaseAmount: String(total) }));
+      }
+      return updated;
+    });
+  };
 
   // Calculate live days & daily cost for form preview
   const formCalculations = useMemo(() => {
@@ -65,9 +123,20 @@ export default function PondLeaseManagement() {
     return { totalDays, dailyCost };
   }, [formData.leaseStartDate, formData.leaseEndDate, formData.totalLeaseAmount]);
 
-  // Open Add Form
+  // Open Add Form: First tab is active
   const handleOpenAdd = () => {
     setEditingLease(null);
+    setActiveTab('siteLease');
+    setSiteFormData({
+      siteId: sites[0]?.id ? String(sites[0].id) : '',
+      acres: '1',
+      amountPerAcre: '',
+      leaseStartDate: new Date().toISOString().split('T')[0],
+      leaseEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      remarks: '',
+      notes: '',
+    });
+    setSiteFormError('');
     setFormData({
       tankId: tanks[0]?.id || '',
       totalLeaseAmount: '',
@@ -79,9 +148,10 @@ export default function PondLeaseManagement() {
     setIsFormOpen(true);
   };
 
-  // Open Edit Form
+  // Open Edit Form: Second tab is active for editing pond lease
   const handleOpenEdit = (lease) => {
     setEditingLease(lease);
+    setActiveTab('pondLease');
     setFormData({
       tankId: lease.tankId,
       totalLeaseAmount: lease.totalLeaseAmount,
@@ -91,6 +161,43 @@ export default function PondLeaseManagement() {
     });
     setFormError('');
     setIsFormOpen(true);
+  };
+
+  // Navigate from First Tab to Second Tab
+  const handleContinueToPondLease = (e) => {
+    if (e) e.preventDefault();
+    setSiteFormError('');
+
+    if (!siteFormData.siteId) {
+      setSiteFormError('Please select a registered site.');
+      return;
+    }
+    const a = parseFloat(siteFormData.acres);
+    if (isNaN(a) || a <= 0) {
+      setSiteFormError('No. of acres must be greater than 0.');
+      return;
+    }
+    const cost = parseFloat(siteFormData.amountPerAcre);
+    if (isNaN(cost) || cost <= 0) {
+      setSiteFormError('Amount per acre must be greater than 0.');
+      return;
+    }
+    if (!siteFormData.leaseStartDate || !siteFormData.leaseEndDate) {
+      setSiteFormError('Please enter both lease start date and end date.');
+      return;
+    }
+    if (new Date(siteFormData.leaseEndDate) < new Date(siteFormData.leaseStartDate)) {
+      setSiteFormError('Lease end date cannot be earlier than lease start date.');
+      return;
+    }
+
+    const total = calculateSiteTotal(siteFormData.acres, siteFormData.amountPerAcre);
+    setFormData((prev) => ({
+      ...prev,
+      ...(total !== null ? { totalLeaseAmount: String(total) } : {}),
+      ...(siteFormData.remarks && !prev.remarks ? { remarks: siteFormData.remarks } : {}),
+    }));
+    setActiveTab('pondLease');
   };
 
   // Save Form Handler
@@ -463,121 +570,288 @@ export default function PondLeaseManagement() {
         description="Configure pond lease period and total amount to calculate daily and crop lease cost allocation."
         size="md"
       >
-        <form onSubmit={handleSave} className="space-y-4 pt-2">
-          {formError && (
-            <div className="p-3 rounded-lg bg-red-50 text-red-700 text-xs font-medium border border-red-200">
-              {formError}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
-              Select Tank / Pond *
-            </label>
-            <select
-              className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              value={formData.tankId}
-              onChange={(e) => setFormData({ ...formData, tankId: e.target.value })}
-              required
-            >
-              {tanks.map((tank) => (
-                <option key={tank.id} value={tank.id}>
-                  {tank.name || tank.tankName} {tank.site?.siteName ? `(${tank.site.siteName})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
-              Total Lease Amount (₹) *
-            </label>
-            <input
-              type="number"
-              min="1"
-              step="any"
-              placeholder="e.g. 365000"
-              className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              value={formData.totalLeaseAmount}
-              onChange={(e) => setFormData({ ...formData, totalLeaseAmount: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
-                Lease Start Date *
-              </label>
-              <input
-                type="date"
-                className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                value={formData.leaseStartDate}
-                onChange={(e) => setFormData({ ...formData, leaseStartDate: e.target.value })}
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
-                Lease End Date *
-              </label>
-              <input
-                type="date"
-                className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                value={formData.leaseEndDate}
-                onChange={(e) => setFormData({ ...formData, leaseEndDate: e.target.value })}
-                required
-              />
-            </div>
-          </div>
-
-          {/* Live Calculated Duration & Daily Cost Preview */}
-          <div className="p-3.5 bg-gray-50 rounded-xl border border-border/80 grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <span className="text-text-secondary font-medium block">Total Duration:</span>
-              <span className="text-sm font-bold text-text-primary">{formCalculations.totalDays} Days</span>
-            </div>
-            <div>
-              <span className="text-text-secondary font-medium block">Calculated Daily Cost:</span>
-              <span className="text-sm font-bold text-teal-700">₹{Math.round(formCalculations.dailyCost).toLocaleString()} / day</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
-              Remarks / Notes (Optional)
-            </label>
-            <textarea
-              rows="2"
-              placeholder="Add optional notes or remarks..."
-              className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              value={formData.remarks}
-              onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
-            <Button
+        {/* Two-Tab Navigation Header */}
+        {!editingLease && (
+          <div className="flex items-center gap-1.5 p-1 bg-background rounded-xl border border-border mb-4">
+            <button
               type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsFormOpen(false)}
-              disabled={isSubmitting}
+              onClick={() => setActiveTab('siteLease')}
+              className={`flex-1 py-2 px-3 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer ${
+                activeTab === 'siteLease'
+                  ? 'bg-primary text-white shadow-xs'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-white/50'
+              }`}
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              isLoading={isSubmitting}
-              disabled={isSubmitting}
+              Site Lease Details
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('pondLease')}
+              className={`flex-1 py-2 px-3 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer ${
+                activeTab === 'pondLease'
+                  ? 'bg-primary text-white shadow-xs'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-white/50'
+              }`}
             >
-              {editingLease ? (isSubmitting ? 'Updating...' : 'Update Lease Record') : (isSubmitting ? 'Saving...' : 'Save Pond Lease')}
-            </Button>
+              Add Pond Lease
+            </button>
           </div>
-        </form>
+        )}
+
+        {/* TAB 1: SITE LEASE DETAILS */}
+        {activeTab === 'siteLease' && !editingLease ? (
+          <div className="space-y-4 pt-1">
+            {siteFormError && (
+              <div className="p-3 rounded-lg bg-red-50 text-red-700 text-xs font-medium border border-red-200">
+                {siteFormError}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                Select Site *
+              </label>
+              <select
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                value={siteFormData.siteId}
+                onChange={(e) => setSiteFormData({ ...siteFormData, siteId: e.target.value })}
+                required
+              >
+                <option value="">Choose registered site...</option>
+                {sites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.siteName || site.name} {site.location ? `(${site.location})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                  No. of Acres *
+                </label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="any"
+                  placeholder="e.g. 20"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={siteFormData.acres}
+                  onChange={(e) => handleAcresChange(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                  Amount Per Acre (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="any"
+                  placeholder="e.g. 100000"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={siteFormData.amountPerAcre}
+                  onChange={(e) => handleAmountPerAcreChange(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                  Lease Start Date *
+                </label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={siteFormData.leaseStartDate}
+                  onChange={(e) => setSiteFormData({ ...siteFormData, leaseStartDate: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                  Lease End Date *
+                </label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={siteFormData.leaseEndDate}
+                  onChange={(e) => setSiteFormData({ ...siteFormData, leaseEndDate: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                Remarks / Notes (Optional)
+              </label>
+              <textarea
+                rows="2"
+                placeholder="Add optional notes or remarks..."
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                value={siteFormData.remarks}
+                onChange={(e) => setSiteFormData({ ...siteFormData, remarks: e.target.value })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-border">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsFormOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={handleContinueToPondLease}
+              >
+                Save and Next
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* TAB 2: EXACT EXISTING SECOND TAB */
+          <form onSubmit={handleSave} className="space-y-4 pt-1">
+            {formError && (
+              <div className="p-3 rounded-lg bg-red-50 text-red-700 text-xs font-medium border border-red-200">
+                {formError}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                Select Tank / Pond *
+              </label>
+              <select
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                value={formData.tankId}
+                onChange={(e) => setFormData({ ...formData, tankId: e.target.value })}
+                required
+              >
+                {tanks.map((tank) => (
+                  <option key={tank.id} value={tank.id}>
+                    {tank.name || tank.tankName} {tank.site?.siteName ? `(${tank.site.siteName})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                Total Lease Amount (₹) *
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="any"
+                placeholder="e.g. 365000"
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                value={formData.totalLeaseAmount}
+                onChange={(e) => setFormData({ ...formData, totalLeaseAmount: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                  Lease Start Date *
+                </label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={formData.leaseStartDate}
+                  onChange={(e) => setFormData({ ...formData, leaseStartDate: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                  Lease End Date *
+                </label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  value={formData.leaseEndDate}
+                  onChange={(e) => setFormData({ ...formData, leaseEndDate: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Live Calculated Duration & Daily Cost Preview */}
+            <div className="p-3.5 bg-gray-50 rounded-xl border border-border/80 grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <span className="text-text-secondary font-medium block">Total Duration:</span>
+                <span className="text-sm font-bold text-text-primary">{formCalculations.totalDays} Days</span>
+              </div>
+              <div>
+                <span className="text-text-secondary font-medium block">Calculated Daily Cost:</span>
+                <span className="text-sm font-bold text-teal-700">₹{Math.round(formCalculations.dailyCost).toLocaleString()} / day</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary uppercase tracking-wider mb-1.5">
+                Remarks / Notes (Optional)
+              </label>
+              <textarea
+                rows="2"
+                placeholder="Add optional notes or remarks..."
+                className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                value={formData.remarks}
+                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-border">
+              {!editingLease ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActiveTab('siteLease')}
+                >
+                  ← Back to Site Lease
+                </Button>
+              ) : (
+                <div />
+              )}
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsFormOpen(false)}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  isLoading={isSubmitting}
+                  disabled={isSubmitting}
+                >
+                  {editingLease ? (isSubmitting ? 'Updating...' : 'Update Lease Record') : (isSubmitting ? 'Saving...' : 'Save Pond Lease')}
+                </Button>
+              </div>
+            </div>
+          </form>
+        )}
       </Modal>
 
       {/* 6. DELETE CONFIRMATION DIALOG (Step 1) */}
