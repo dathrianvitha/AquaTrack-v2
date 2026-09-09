@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   PieChart as PieChartIcon,
   Utensils,
@@ -9,7 +9,9 @@ import {
   RefreshCw,
   Calendar,
   Landmark,
-  Wheat
+  Wheat,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -30,6 +32,8 @@ import { Loader } from '../../components/Loader';
 import { getHarvestLevelLabel } from '../../components/HarvestCard';
 
 import reportService from '../../services/reportService';
+import { useTanks } from '../../context/TankContext';
+import { useCrops } from '../../context/CropContext';
 
 const CHART_COLORS = [
   '#0F766E', // Teal
@@ -43,6 +47,9 @@ const CHART_COLORS = [
 ];
 
 export default function Reports() {
+  const { tanks: contextTanks = [], loading: contextTanksLoading } = useTanks() || {};
+  const { crops: contextCrops = [] } = useCrops() || {};
+
   const [tanks, setTanks] = useState([]);
   const [selectedTankId, setSelectedTankId] = useState('');
   const [reportType, setReportType] = useState('ACTIVE'); // 'ACTIVE' or 'COMPLETED'
@@ -54,31 +61,123 @@ export default function Reports() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [infoMsg, setInfoMsg] = useState('');
 
-  // 1. Fetch Tanks list on initial mount
+  // Combine context tanks with direct API tanks to guarantee dropdown never blanks
+  const displayTanks = useMemo(() => {
+    if (tanks && tanks.length > 0) return tanks;
+    if (contextTanks && contextTanks.length > 0) return contextTanks;
+    return [];
+  }, [tanks, contextTanks]);
+
+  // 1. Fetch Tanks list on initial mount and pick optimal starting tank
   const fetchTanks = useCallback(async () => {
     try {
       setLoadingTanks(true);
       setInfoMsg('');
       const tankList = await reportService.getReportTanks();
-      setTanks(tankList);
+      const resolvedList = Array.isArray(tankList) && tankList.length > 0 ? tankList : contextTanks;
+      setTanks(resolvedList);
 
-      if (tankList && tankList.length > 0) {
-        setSelectedTankId(tankList[0].id);
+      if (resolvedList && resolvedList.length > 0) {
+        setSelectedTankId((prev) => {
+          if (prev) return prev;
+          return 'ALL';
+        });
       }
     } catch (err) {
       console.error('Error fetching tanks for reports:', err);
-      setTanks([]);
-      setInfoMsg('Please create your farm profile and setup tanks to view reports.');
+      if (contextTanks && contextTanks.length > 0) {
+        setTanks(contextTanks);
+        setSelectedTankId((prev) => prev || 'ALL');
+      } else {
+        setTanks([]);
+        setInfoMsg('Please create your farm profile and setup tanks to view reports.');
+      }
     } finally {
       setLoadingTanks(false);
     }
-  }, []);
+  }, [contextTanks, contextCrops]);
 
   useEffect(() => {
     fetchTanks();
   }, [fetchTanks]);
 
-  // 2. Fetch Report Data for Selected Tank & Batch Type
+  // Synchronize context tanks if direct tanks are not loaded yet
+  useEffect(() => {
+    if ((!tanks || tanks.length === 0) && contextTanks.length > 0) {
+      setTanks(contextTanks);
+      setSelectedTankId((prev) => prev || 'ALL');
+    }
+  }, [contextTanks, tanks]);
+
+  // Identify crops for currently selected tank
+  const selectedTankCrops = useMemo(() => {
+    if (!selectedTankId || selectedTankId === 'ALL') return [];
+    return (contextCrops || []).filter(
+      (c) => String(c.tankId || c.tank?.id) === String(selectedTankId)
+    );
+  }, [contextCrops, selectedTankId]);
+
+  const hasActiveBatchForSelectedTank = useMemo(() => {
+    return selectedTankCrops.some(
+      (c) => c.rawStatus === 'ACTIVE' || c.status === 'Active' || c.status === 'ACTIVE'
+    );
+  }, [selectedTankCrops]);
+
+  // 2. Fetch Completed Crops List when tank changes
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchCompletedList() {
+      if (!selectedTankId || selectedTankId === 'ALL') {
+        setCompletedCrops([]);
+        return;
+      }
+      try {
+        const list = await reportService.getCompletedCrops(selectedTankId);
+        if (!isMounted) return;
+
+        const effectiveList = Array.isArray(list) && list.length > 0
+          ? list
+          : selectedTankCrops.filter(
+              (c) => c.rawStatus === 'COMPLETED' || c.status === 'Completed' || c.status === 'COMPLETED'
+            );
+
+        setCompletedCrops(effectiveList);
+
+        // Smart Mode Auto-Switching:
+        // If tank has NO active crop batch, but HAS completed crops (like Tank A1), auto-select COMPLETED!
+        if (!hasActiveBatchForSelectedTank && effectiveList.length > 0) {
+          setReportType('COMPLETED');
+          setSelectedCropId(effectiveList[0].id);
+        } else if (hasActiveBatchForSelectedTank) {
+          setReportType('ACTIVE');
+          if (effectiveList.length > 0) {
+            setSelectedCropId(effectiveList[0].id);
+          }
+        } else if (effectiveList.length > 0) {
+          setSelectedCropId(effectiveList[0].id);
+        } else {
+          setSelectedCropId('');
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        const fallbackList = selectedTankCrops.filter(
+          (c) => c.rawStatus === 'COMPLETED' || c.status === 'Completed' || c.status === 'COMPLETED'
+        );
+        setCompletedCrops(fallbackList);
+        if (!hasActiveBatchForSelectedTank && fallbackList.length > 0) {
+          setReportType('COMPLETED');
+          setSelectedCropId(fallbackList[0].id);
+        }
+      }
+    }
+
+    fetchCompletedList();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTankId, hasActiveBatchForSelectedTank, selectedTankCrops]);
+
+  // 3. Fetch Report Data for Selected Tank & Batch Type
   const loadReport = useCallback(async () => {
     if (!selectedTankId) {
       setReportData(null);
@@ -89,58 +188,93 @@ export default function Reports() {
       setLoadingReport(true);
       setInfoMsg('');
 
+      if (selectedTankId === 'ALL') {
+        const res = await reportService.getFarmOverviewReport();
+        setReportData(res.data || res);
+        return;
+      }
+
       if (reportType === 'ACTIVE') {
-        const res = await reportService.getActiveTankReport(selectedTankId);
-        setReportData(res.data || res);
-      } else if (reportType === 'COMPLETED' && selectedCropId) {
-        const res = await reportService.getCompletedCropReport(selectedCropId);
-        setReportData(res.data || res);
+        try {
+          const res = await reportService.getActiveTankReport(selectedTankId);
+          setReportData(res.data || res);
+        } catch (activeErr) {
+          // If active report returns "No active crop" but completed batch exists, auto-fallback to completed!
+          if (completedCrops.length > 0) {
+            setReportType('COMPLETED');
+            const targetCropId = selectedCropId || completedCrops[0].id;
+            setSelectedCropId(targetCropId);
+            const compRes = await reportService.getCompletedCropReport(targetCropId);
+            setReportData(compRes.data || compRes);
+            return;
+          }
+          throw activeErr;
+        }
+      } else if (reportType === 'COMPLETED') {
+        const targetCropId = selectedCropId || (completedCrops.length > 0 ? completedCrops[0].id : null);
+        if (targetCropId) {
+          const res = await reportService.getCompletedCropReport(targetCropId);
+          setReportData(res.data || res);
+        } else {
+          setReportData(null);
+          setInfoMsg('No completed batch found for this tank.');
+        }
       }
     } catch (err) {
-      console.log('Report fetch info:', err.message);
+      console.log('Report fetch notice:', err.message);
       setReportData(null);
       setInfoMsg(err.message || 'No report data available for this selection.');
     } finally {
       setLoadingReport(false);
     }
-  }, [selectedTankId, reportType, selectedCropId]);
-
-  // 3. Fetch Completed Crops List when tank changes
-  useEffect(() => {
-    async function fetchCompletedList() {
-      if (!selectedTankId) return;
-      try {
-        const list = await reportService.getCompletedCrops(selectedTankId);
-        setCompletedCrops(list);
-        if (list && list.length > 0) {
-          setSelectedCropId(list[0].id);
-        } else {
-          setSelectedCropId('');
-        }
-      } catch {
-        setCompletedCrops([]);
-        setSelectedCropId('');
-      }
-    }
-
-    fetchCompletedList();
-  }, [selectedTankId]);
+  }, [selectedTankId, reportType, selectedCropId, completedCrops]);
 
   useEffect(() => {
     loadReport();
   }, [loadReport]);
 
-  const tankOptions = tanks.map((tank) => {
-    const name = tank.tankName || tank.name || 'Pond';
-    const details = tank.area ? `${tank.area} Acres` : '';
-    return {
-      value: tank.id,
-      label: details ? `${name} (${details})` : name,
+  // Enhanced Tank Options showing batch status right inside dropdown
+  const tankOptions = useMemo(() => {
+    const allOption = {
+      value: 'ALL',
+      label: '🌟 All Ponds (Farm Total Analytics)',
     };
-  });
+
+    const options = displayTanks.map((tank) => {
+      const name = tank.tankName || tank.name || 'Pond';
+      const details = tank.area ? `${tank.area} Acres` : '';
+      const cropsForThisTank = (contextCrops || []).filter(
+        (c) => String(c.tankId || c.tank?.id) === String(tank.id)
+      );
+      const active = cropsForThisTank.find(
+        (c) => c.rawStatus === 'ACTIVE' || c.status === 'Active' || c.status === 'ACTIVE'
+      );
+      const completed = cropsForThisTank.filter(
+        (c) => c.rawStatus === 'COMPLETED' || c.status === 'Completed' || c.status === 'COMPLETED'
+      );
+
+      let statusNote = '';
+      if (active) {
+        const bNum = active.batchNumber ? `#${active.batchNumber}` : '';
+        statusNote = ` • Active ${bNum}`.trim();
+      } else if (completed.length > 0) {
+        statusNote = ` • ${completed.length} Completed Batch${completed.length > 1 ? 'es' : ''}`;
+      } else {
+        statusNote = ` • No Batches`;
+      }
+
+      const mainLabel = details ? `${name} (${details})` : name;
+      return {
+        value: String(tank.id),
+        label: `${mainLabel}${statusNote}`,
+      };
+    });
+
+    return [allOption, ...options];
+  }, [displayTanks, contextCrops]);
 
   const completedCropOptions = completedCrops.map((crop) => {
-    const rawIdentifier = crop.cropName || crop.batchNumber || crop.name;
+    const rawIdentifier = crop.cropName || (crop.batchNumber ? `Batch #${crop.batchNumber}` : crop.name);
     const identifier =
       rawIdentifier &&
       typeof rawIdentifier === 'string' &&
@@ -166,11 +300,11 @@ export default function Reports() {
     } else if (formattedDate) {
       label = formattedDate;
     } else {
-      label = `Batch ${crop.id}`;
+      label = `Batch ${crop.id?.slice(-4) || ''}`;
     }
 
     return {
-      value: crop.id,
+      value: String(crop.id),
       label,
     };
   });
@@ -183,6 +317,8 @@ export default function Reports() {
   const medicineHistory = reportData?.medicineHistory || [];
   const expenseHistory = reportData?.expenseHistory || [];
   const harvestHistory = reportData?.harvestHistory || [];
+
+  const selectedTankObject = displayTanks.find((t) => String(t.id) === String(selectedTankId));
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -224,42 +360,50 @@ export default function Reports() {
               options={tankOptions}
               value={selectedTankId}
               onChange={(e) => {
-                setSelectedTankId(e.target.value);
-                setReportType('ACTIVE');
+                const newTankId = e.target.value;
+                setSelectedTankId(newTankId);
               }}
-              disabled={loadingTanks || tanks.length === 0}
+              disabled={loadingTanks || displayTanks.length === 0}
             />
           </div>
 
           {/* Report Mode Switcher (Active vs Completed) */}
-          <div className="flex items-center gap-2 bg-background p-1.5 rounded-xl border border-border shrink-0">
-            <button
-              type="button"
-              onClick={() => setReportType('ACTIVE')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                reportType === 'ACTIVE'
-                  ? 'bg-primary text-white shadow-xs'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              Active Crop Batch
-            </button>
-            <button
-              type="button"
-              disabled={completedCrops.length === 0}
-              onClick={() => setReportType('COMPLETED')}
-              className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-                reportType === 'COMPLETED'
-                  ? 'bg-primary text-white shadow-xs'
-                  : 'text-text-secondary hover:text-text-primary disabled:opacity-40 cursor-pointer'
-              }`}
-            >
-              Completed Batches ({completedCrops.length})
-            </button>
-          </div>
+          {selectedTankId === 'ALL' ? (
+            <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3.5 py-2 rounded-xl text-primary text-xs font-semibold shrink-0">
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              Consolidated Farm Overview (All Batches)
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 bg-background p-1.5 rounded-xl border border-border shrink-0">
+              <button
+                type="button"
+                disabled={!hasActiveBatchForSelectedTank}
+                onClick={() => setReportType('ACTIVE')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                  reportType === 'ACTIVE'
+                    ? 'bg-primary text-white shadow-xs'
+                    : 'text-text-secondary hover:text-text-primary disabled:opacity-40'
+                }`}
+              >
+                Active Crop Batch {hasActiveBatchForSelectedTank ? '' : '(0)'}
+              </button>
+              <button
+                type="button"
+                disabled={completedCrops.length === 0}
+                onClick={() => setReportType('COMPLETED')}
+                className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                  reportType === 'COMPLETED'
+                    ? 'bg-primary text-white shadow-xs'
+                    : 'text-text-secondary hover:text-text-primary disabled:opacity-40 cursor-pointer'
+                }`}
+              >
+                Completed Batches ({completedCrops.length})
+              </button>
+            </div>
+          )}
 
-          {/* Completed Crop Selector (if mode is COMPLETED) */}
-          {reportType === 'COMPLETED' && completedCrops.length > 0 && (
+          {/* Completed Crop Selector (if mode is COMPLETED and not ALL) */}
+          {selectedTankId !== 'ALL' && reportType === 'COMPLETED' && completedCrops.length > 0 && (
             <div className="flex-1">
               <Select
                 label="Select Completed Batch"
@@ -284,30 +428,50 @@ export default function Reports() {
           <div className="bg-surface border border-border/80 rounded-2xl p-5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <Badge variant={crop.status === 'ACTIVE' ? 'primary' : 'neutral'} size="sm">
-                  {crop.status || 'Active'} Batch
+                <Badge variant={selectedTankId === 'ALL' ? 'accent' : (crop.status === 'ACTIVE' ? 'primary' : 'neutral')} size="sm">
+                  {selectedTankId === 'ALL' ? 'Farm Consolidated' : `${crop.status || 'Active'} Batch`}
                 </Badge>
-                <span className="text-xs text-text-secondary font-medium">{tank.tankName} ({tank.area} Acres)</span>
+                <span className="text-xs text-text-secondary font-medium">
+                  {selectedTankId === 'ALL'
+                    ? `${tank.tankName || 'All Ponds'} (${tank.area || 0} Total Acres)`
+                    : `${tank.tankName || selectedTankObject?.tankName} (${tank.area || selectedTankObject?.area} Acres)`}
+                </span>
               </div>
-              <h2 className="text-xl font-bold text-text-primary">{crop.cropName}</h2>
+              <h2 className="text-xl font-bold text-text-primary">
+                {selectedTankId === 'ALL'
+                  ? (crop.cropName || 'Consolidated Farm Analytics')
+                  : (crop.cropName || (crop.batchNumber ? `Batch #${crop.batchNumber}` : `${tank.tankName || 'Tank'} Crop Batch`))}
+              </h2>
             </div>
 
             <div className="flex items-center gap-6 text-xs text-text-secondary">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-primary" />
-                <div>
-                  <span className="block text-[10px] uppercase font-semibold text-text-secondary">Stocked</span>
-                  <span className="font-bold text-text-primary">{crop.stockingDate ? new Date(crop.stockingDate).toLocaleDateString() : 'N/A'}</span>
-                </div>
-              </div>
+              {selectedTankId !== 'ALL' ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-primary" />
+                    <div>
+                      <span className="block text-[10px] uppercase font-semibold text-text-secondary">Stocked</span>
+                      <span className="font-bold text-text-primary">{crop.stockingDate ? new Date(crop.stockingDate).toLocaleDateString() : 'N/A'}</span>
+                    </div>
+                  </div>
 
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-accent" />
-                <div>
-                  <span className="block text-[10px] uppercase font-semibold text-text-secondary">Day of Culture</span>
-                  <span className="font-bold text-text-primary">Day {crop.currentDay ?? 'N/A'} / {crop.cropDuration || 120}</span>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-accent" />
+                    <div>
+                      <span className="block text-[10px] uppercase font-semibold text-text-secondary">Day of Culture</span>
+                      <span className="font-bold text-text-primary">Day {crop.currentDay ?? 'N/A'} / {crop.cropDuration || 120}</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-primary" />
+                  <div>
+                    <span className="block text-[10px] uppercase font-semibold text-text-secondary">Analytics Scope</span>
+                    <span className="font-bold text-text-primary">All Farm Ponds & Crops</span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -616,14 +780,14 @@ export default function Reports() {
           <EmptyState
             title="No Report Data Available"
             description={
-              tanks.length === 0
+              displayTanks.length === 0
                 ? "You haven't configured any tanks or farm ponds yet. Add your tanks first to view reports."
                 : (infoMsg.includes('active crop')
-                    ? "No active crop batch found for the selected tank. Switch to Completed Batches or register a crop batch in Crop Management."
-                    : infoMsg || "Select a tank above to generate reports.")
+                    ? `No active crop batch found for ${selectedTankObject?.tankName || 'this tank'}. Switch to Completed Batches above or register a new crop in Crop Management.`
+                    : infoMsg || `Select a tank above with active or completed crops to generate analytics reports.`)
             }
-            actionLabel={tanks.length === 0 ? "Setup Tanks" : "Go to Crop Management"}
-            onAction={() => (window.location.href = tanks.length === 0 ? '/tanks' : '/crops')}
+            actionLabel={displayTanks.length === 0 ? "Setup Tanks" : "Go to Crop Management"}
+            onAction={() => (window.location.href = displayTanks.length === 0 ? '/tanks' : '/crops')}
           />
         </Card>
       )}

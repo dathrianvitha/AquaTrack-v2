@@ -5,6 +5,19 @@ import api from './api';
  */
 export const reportService = {
   /**
+   * GET /api/reports/farm-overview
+   * Fetches aggregated farm-wide report across all tanks, crops, feed, medicines, pond leases, and expenses.
+   */
+  async getFarmOverviewReport() {
+    try {
+      const response = await api.get('/reports/farm-overview');
+      return response.data;
+    } catch (error) {
+      throw new Error(error.message || 'Failed to fetch farm overview report');
+    }
+  },
+
+  /**
    * GET /api/reports/tanks
    * Fetches tanks for reports, with fallback to GET /api/tanks to ensure tank dropdown is always populated.
    */

@@ -53,6 +53,7 @@ export const ExpenseForm = ({
   onSubmit,
   onCancel,
   isSubmitting = false,
+  serverError = '',
 }) => {
   const { tanks = [] } = useTanks();
   const { sites = [] } = useSites();
@@ -183,22 +184,11 @@ export const ExpenseForm = ({
         : 'Selected Site';
       const cleanSiteName = rawSiteName.replace(/\s*\([^)]*\)/g, '').trim();
 
-      // Associate tank belonging to this site if available for API backwards-compatibility
-      const associatedTank = tanks.find(
-        (t) =>
-          String(t.siteId || t.site?.id) === String(data.selectedEntityId)
-      );
-      const rawTankName = associatedTank
-        ? associatedTank.tankName || associatedTank.name
-        : cleanSiteName;
-      const cleanTankName = rawTankName.replace(/\s*\([^)]*\)/g, '').trim();
-
+      // Site-level expense: strictly send siteId without attaching an arbitrary single tankId
       expensePayload = {
         ...expensePayload,
         siteId: data.selectedEntityId,
         siteName: cleanSiteName,
-        tankId: associatedTank?.id || data.selectedEntityId,
-        tankName: cleanTankName,
       };
     }
 
@@ -209,6 +199,21 @@ export const ExpenseForm = ({
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-5" noValidate>
+      {serverError && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">
+          {serverError}
+        </div>
+      )}
+
+      {!isSeedCost && (
+        <div className="p-3 bg-teal-50 border border-teal-200 text-teal-800 text-xs rounded-xl flex items-center gap-2">
+          <span>💡</span>
+          <span>
+            <strong>Site Level Expense:</strong> This amount will be split equally among all tanks on this site that have active crops and reflected tank-wise in reports.
+          </span>
+        </div>
+      )}
+
       {/* SECTION 1: BASIC INFORMATION */}
       <div className="space-y-3">
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-secondary border-b border-border/50 pb-1 flex items-center gap-1.5">

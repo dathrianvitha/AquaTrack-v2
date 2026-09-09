@@ -1,13 +1,9 @@
 import {
-
     getReportTanks,
-
     getActiveTankReport,
-
     getCompletedCrops,
-
-    getCompletedCropReport
-
+    getCompletedCropReport,
+    getFarmOverviewReport
 } from "../services/report.service.js";
 
 /* ---------------------------------------------
@@ -166,4 +162,23 @@ export const getCompletedCropReportController = async (req, res) => {
 
     }
 
+};
+
+/* ---------------------------------------------
+   Get Farm Overview Report (All Ponds Combined)
+----------------------------------------------*/
+export const getFarmOverviewReportController = async (req, res) => {
+    try {
+        const report = await getFarmOverviewReport(req.user.id);
+        return res.status(200).json({
+            success: true,
+            message: "Farm overview report fetched successfully",
+            data: report
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
 };

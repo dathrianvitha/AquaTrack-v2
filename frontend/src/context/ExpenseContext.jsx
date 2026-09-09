@@ -50,9 +50,11 @@ export const ExpenseProvider = ({ children }) => {
         ...item,
         id: String(item.id),
         tankId: String(item.crop?.tankId || item.crop?.tank?.id || item.tankId || ''),
+        siteId: String(item.crop?.tank?.siteId || item.crop?.tank?.site?.id || item.siteId || ''),
         date: item.date ? new Date(item.date).toISOString().split('T')[0] : item.date,
         paymentModeDisplay: normalizePaymentModeForUi(item.paymentMode),
         tankName: item.crop?.tank?.tankName || item.crop?.tank?.name || item.tankName || 'Tank',
+        siteName: item.crop?.tank?.site?.siteName || item.siteName || '',
       }));
       setExpenses(normalized);
     } catch (err) {
@@ -98,19 +100,22 @@ export const ExpenseProvider = ({ children }) => {
 
     const res = await expenseService.createExpense(payload);
     const created = res.data || res;
-    const normalized = {
-      ...created,
-      id: String(created.id),
-      tankId: String(created.crop?.tankId || created.crop?.tank?.id || newExpenseData.tankId || ''),
-      siteId: String(created.crop?.tank?.siteId || newExpenseData.siteId || ''),
-      date: created.date ? new Date(created.date).toISOString().split('T')[0] : payload.date,
-      paymentModeDisplay: normalizePaymentModeForUi(created.paymentMode || payload.paymentMode),
-      tankName: newExpenseData.tankName || created.crop?.tank?.tankName || created.crop?.tank?.name || 'Tank',
-      siteName: newExpenseData.siteName || created.crop?.tank?.site?.siteName || '',
-    };
-    setExpenses((prev) => [normalized, ...prev]);
-    emitDataMutation('EXPENSE', 'CREATE', normalized);
-    return normalized;
+    const items = Array.isArray(created) ? created : [created];
+
+    const normalizedList = items.map((item) => ({
+      ...item,
+      id: String(item.id),
+      tankId: String(item.crop?.tankId || item.crop?.tank?.id || newExpenseData.tankId || ''),
+      siteId: String(item.crop?.tank?.siteId || item.crop?.tank?.site?.id || newExpenseData.siteId || ''),
+      date: item.date ? new Date(item.date).toISOString().split('T')[0] : payload.date,
+      paymentModeDisplay: normalizePaymentModeForUi(item.paymentMode || payload.paymentMode),
+      tankName: item.crop?.tank?.tankName || item.crop?.tank?.name || newExpenseData.tankName || 'Tank',
+      siteName: item.crop?.tank?.site?.siteName || newExpenseData.siteName || '',
+    }));
+
+    setExpenses((prev) => [...normalizedList, ...prev]);
+    normalizedList.forEach((it) => emitDataMutation('EXPENSE', 'CREATE', it));
+    return normalizedList[0];
   };
 
   const updateExpense = async (id, updatedData) => {

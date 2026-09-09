@@ -1,0 +1,16 @@
+{
+  "name": "aquatrack-v2",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AquaTrack-v2 Fullstack Application",
+  "scripts": {
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"npm run dev --prefix server\" \"npm run dev --prefix frontend\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
