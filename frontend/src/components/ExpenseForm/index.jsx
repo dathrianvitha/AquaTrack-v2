@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,52 +14,68 @@ import {
   PAYMENT_MODE_OPTIONS
 } from '../../constants/expenseData';
 import { useTanks } from '../../context/TankContext';
+import { useSites } from '../../context/SiteContext';
 
-// Zod Validation Schema matching frontend required fields
-const expenseSchema = z.object({
-  tankId: z
-    .string()
-    .min(1, 'Please select a Tank / Pond'),
-  category: z
-    .string()
-    .min(1, 'Please select an Expense Category'),
-  amount: z
-    .coerce
-    .number({ invalid_type_error: 'Amount must be a number' })
-    .positive('Amount must be greater than 0'),
-  paymentMode: z
-    .string()
-    .min(1, 'Please select a Payment Mode'),
-  date: z
-    .string()
-    .min(1, 'Date is required'),
-  notes: z
-    .string()
-    .optional(),
-});
+// Zod Validation Schema matching frontend required fields with dynamic Tank / Site requirement
+const expenseSchema = z
+  .object({
+    selectedEntityId: z.string().optional(),
+    category: z.string().min(1, 'Please select an Expense Category'),
+    amount: z
+      .coerce
+      .number({ invalid_type_error: 'Amount must be a number' })
+      .positive('Amount must be greater than 0'),
+    paymentMode: z.string().min(1, 'Please select a Payment Mode'),
+    date: z.string().min(1, 'Date is required'),
+    notes: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const isSeedCost =
+      data.category === 'Seed Cost' ||
+      (typeof data.category === 'string' &&
+        data.category.trim().toLowerCase() === 'seed cost');
+    if (!data.selectedEntityId || !data.selectedEntityId.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: isSeedCost ? 'Please select a Tank' : 'Please select a Site',
+        path: ['selectedEntityId'],
+      });
+    }
+  });
 
 /**
- * Reusable ExpenseForm component with dynamic Tank dropdown from TankContext.
- * Displays user-essential fields ONLY: tankId, category, amount, paymentMode, date, notes.
- * Tank display NEVER includes water source (e.g. Borewell).
+ * Reusable ExpenseForm component with dynamic Tank / Site dropdown based on Expense Category.
+ * Case 1 — Seed Cost: Label is 'Choose Tank', dropdown lists registered Tanks from TankContext.
+ * Case 2 — All other categories: Label is 'Choose Site', dropdown lists registered Sites from SiteContext.
  */
 export const ExpenseForm = ({
   initialData = null,
   onSubmit,
   onCancel,
   isSubmitting = false,
+  serverError = '',
 }) => {
-  const { tanks } = useTanks();
+  const { tanks = [] } = useTanks();
+  const { sites = [] } = useSites();
   const isEditing = Boolean(initialData?.id);
 
-  // Clean tank labels so water source is NEVER exposed
+  // Dynamic Tank options for Seed Cost
   const tankSelectOptions = tanks.map((tank) => {
-    const rawName = tank.name || tank.tankName || 'Tank';
+    const rawName = tank.tankName || tank.name || 'Tank';
     const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
-    const areaSuffix = tank.area ? ` (${tank.area} Acres)` : '';
     return {
-      value: tank.id,
-      label: `${cleanName}${areaSuffix}`,
+      value: String(tank.id),
+      label: cleanName,
+    };
+  });
+
+  // Dynamic Site options for all other expense categories
+  const siteSelectOptions = sites.map((site) => {
+    const rawName = site.siteName || site.name || 'Site';
+    const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
+    return {
+      value: String(site.id),
+      label: cleanName,
     };
   });
 
@@ -67,11 +83,13 @@ export const ExpenseForm = ({
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(expenseSchema),
     defaultValues: {
-      tankId: '',
+      selectedEntityId: '',
       category: '',
       amount: '',
       paymentMode: '',
@@ -81,11 +99,47 @@ export const ExpenseForm = ({
     mode: 'onTouched',
   });
 
+  const selectedCategory = watch('category');
+  const isSeedCost =
+    selectedCategory === 'Seed Cost' ||
+    (typeof selectedCategory === 'string' &&
+      selectedCategory.trim().toLowerCase() === 'seed cost');
+
+  const selectionLabel = isSeedCost ? 'Choose Tank' : 'Choose Site';
+  const selectionPlaceholder = isSeedCost ? 'Choose tank...' : 'Choose site...';
+  const selectionOptions = isSeedCost ? tankSelectOptions : siteSelectOptions;
+
+  const prevIsSeedCostRef = useRef(isSeedCost);
+  const isFirstRenderRef = useRef(true);
+
+  // Reset selected entity whenever category toggles between Seed Cost and other categories
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      prevIsSeedCostRef.current = isSeedCost;
+      return;
+    }
+
+    if (prevIsSeedCostRef.current !== isSeedCost) {
+      setValue('selectedEntityId', '', { shouldValidate: false });
+      prevIsSeedCostRef.current = isSeedCost;
+    }
+  }, [isSeedCost, setValue]);
+
   useEffect(() => {
     if (initialData) {
+      const initialCat = initialData.category || '';
+      const isSeed =
+        initialCat === 'Seed Cost' ||
+        (typeof initialCat === 'string' &&
+          initialCat.trim().toLowerCase() === 'seed cost');
+      const initialEntityId = isSeed
+        ? initialData.tankId || ''
+        : initialData.siteId || initialData.tankId || '';
+
       reset({
-        tankId: initialData.tankId || '',
-        category: initialData.category || '',
+        selectedEntityId: initialEntityId ? String(initialEntityId) : '',
+        category: initialCat,
         amount: initialData.amount || '',
         paymentMode: initialData.paymentMode || '',
         date: initialData.date || new Date().toISOString().split('T')[0],
@@ -95,13 +149,7 @@ export const ExpenseForm = ({
   }, [initialData, reset]);
 
   const handleFormSubmit = (data) => {
-    const selectedTankObj = tanks.find((t) => t.id === data.tankId);
-    const rawTankName = selectedTankObj ? selectedTankObj.name : 'Selected Pond';
-    const cleanTankName = rawTankName.replace(/\s*\([^)]*\)/g, '').trim();
-
-    // Backend Request Model: { tankId, category, description, amount, paymentMode, date, notes }
-    const expensePayload = {
-      tankId: data.tankId,
+    let expensePayload = {
       category: data.category,
       description: data.category, // Internally populate description using category for API compatibility
       amount: parseFloat(data.amount),
@@ -110,16 +158,62 @@ export const ExpenseForm = ({
       notes: data.notes ? data.notes.trim() : '',
     };
 
-    if (onSubmit) {
-      onSubmit({
+    if (isSeedCost) {
+      const selectedTankObj = tanks.find(
+        (t) => String(t.id) === String(data.selectedEntityId)
+      );
+      const rawTankName = selectedTankObj
+        ? selectedTankObj.tankName || selectedTankObj.name
+        : 'Selected Pond';
+      const cleanTankName = rawTankName.replace(/\s*\([^)]*\)/g, '').trim();
+
+      expensePayload = {
         ...expensePayload,
+        tankId: data.selectedEntityId,
+        siteId: selectedTankObj?.siteId || selectedTankObj?.site?.id || '',
         tankName: cleanTankName,
-      });
+        siteName:
+          selectedTankObj?.siteName || selectedTankObj?.site?.siteName || '',
+      };
+    } else {
+      const selectedSiteObj = sites.find(
+        (s) => String(s.id) === String(data.selectedEntityId)
+      );
+      const rawSiteName = selectedSiteObj
+        ? selectedSiteObj.siteName || selectedSiteObj.name
+        : 'Selected Site';
+      const cleanSiteName = rawSiteName.replace(/\s*\([^)]*\)/g, '').trim();
+
+      // Site-level expense: strictly send siteId without attaching an arbitrary single tankId
+      expensePayload = {
+        ...expensePayload,
+        siteId: data.selectedEntityId,
+        siteName: cleanSiteName,
+      };
+    }
+
+    if (onSubmit) {
+      onSubmit(expensePayload);
     }
   };
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-5" noValidate>
+      {serverError && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">
+          {serverError}
+        </div>
+      )}
+
+      {!isSeedCost && (
+        <div className="p-3 bg-teal-50 border border-teal-200 text-teal-800 text-xs rounded-xl flex items-center gap-2">
+          <span>💡</span>
+          <span>
+            <strong>Site Level Expense:</strong> This amount will be split equally among all tanks on this site that have active crops and reflected tank-wise in reports.
+          </span>
+        </div>
+      )}
+
       {/* SECTION 1: BASIC INFORMATION */}
       <div className="space-y-3">
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-text-secondary border-b border-border/50 pb-1 flex items-center gap-1.5">
@@ -127,12 +221,12 @@ export const ExpenseForm = ({
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
-            label="Tank"
+            label={selectionLabel}
             required={true}
-            placeholder="Choose tank..."
-            options={tankSelectOptions}
-            error={errors.tankId?.message}
-            {...register('tankId')}
+            placeholder={selectionPlaceholder}
+            options={selectionOptions}
+            error={errors.selectedEntityId?.message}
+            {...register('selectedEntityId')}
           />
 
           <Select

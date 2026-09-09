@@ -50,9 +50,11 @@ export const ExpenseProvider = ({ children }) => {
         ...item,
         id: String(item.id),
         tankId: String(item.crop?.tankId || item.crop?.tank?.id || item.tankId || ''),
+        siteId: String(item.crop?.tank?.siteId || item.crop?.tank?.site?.id || item.siteId || ''),
         date: item.date ? new Date(item.date).toISOString().split('T')[0] : item.date,
         paymentModeDisplay: normalizePaymentModeForUi(item.paymentMode),
         tankName: item.crop?.tank?.tankName || item.crop?.tank?.name || item.tankName || 'Tank',
+        siteName: item.crop?.tank?.site?.siteName || item.siteName || '',
       }));
       setExpenses(normalized);
     } catch (err) {
@@ -87,6 +89,7 @@ export const ExpenseProvider = ({ children }) => {
   const addExpense = async (newExpenseData) => {
     const payload = {
       tankId: newExpenseData.tankId,
+      siteId: newExpenseData.siteId,
       category: newExpenseData.category,
       description: newExpenseData.description || `${newExpenseData.category} expense`,
       amount: parseFloat(newExpenseData.amount),
@@ -97,23 +100,30 @@ export const ExpenseProvider = ({ children }) => {
 
     const res = await expenseService.createExpense(payload);
     const created = res.data || res;
-    const normalized = {
-      ...created,
-      id: String(created.id),
-      tankId: String(created.crop?.tankId || created.crop?.tank?.id || newExpenseData.tankId || ''),
-      date: created.date ? new Date(created.date).toISOString().split('T')[0] : payload.date,
-      paymentModeDisplay: normalizePaymentModeForUi(created.paymentMode || payload.paymentMode),
-      tankName: newExpenseData.tankName || 'Tank',
-    };
-    setExpenses((prev) => [normalized, ...prev]);
-    emitDataMutation('EXPENSE', 'CREATE', normalized);
-    return normalized;
+    const items = Array.isArray(created) ? created : [created];
+
+    const normalizedList = items.map((item) => ({
+      ...item,
+      id: String(item.id),
+      tankId: String(item.crop?.tankId || item.crop?.tank?.id || newExpenseData.tankId || ''),
+      siteId: String(item.crop?.tank?.siteId || item.crop?.tank?.site?.id || newExpenseData.siteId || ''),
+      date: item.date ? new Date(item.date).toISOString().split('T')[0] : payload.date,
+      paymentModeDisplay: normalizePaymentModeForUi(item.paymentMode || payload.paymentMode),
+      tankName: item.crop?.tank?.tankName || item.crop?.tank?.name || newExpenseData.tankName || 'Tank',
+      siteName: item.crop?.tank?.site?.siteName || newExpenseData.siteName || '',
+    }));
+
+    setExpenses((prev) => [...normalizedList, ...prev]);
+    normalizedList.forEach((it) => emitDataMutation('EXPENSE', 'CREATE', it));
+    return normalizedList[0];
   };
 
   const updateExpense = async (id, updatedData) => {
     const targetId = String(id);
     const payload = {
       ...(updatedData.category ? { category: updatedData.category } : {}),
+      ...(updatedData.tankId ? { tankId: updatedData.tankId } : {}),
+      ...(updatedData.siteId ? { siteId: updatedData.siteId } : {}),
       ...(updatedData.description ? { description: updatedData.description } : {}),
       ...(updatedData.amount ? { amount: parseFloat(updatedData.amount) } : {}),
       ...(updatedData.paymentMode ? { paymentMode: mapPaymentModeToApi(updatedData.paymentMode) } : {}),
@@ -127,9 +137,11 @@ export const ExpenseProvider = ({ children }) => {
       ...updated,
       id: targetId,
       tankId: String(updated.crop?.tankId || updated.crop?.tank?.id || updatedData.tankId || ''),
+      siteId: String(updated.crop?.tank?.siteId || updatedData.siteId || ''),
       date: updated.date ? new Date(updated.date).toISOString().split('T')[0] : updatedData.date,
       paymentModeDisplay: normalizePaymentModeForUi(updated.paymentMode || updatedData.paymentMode),
-      tankName: updated.crop?.tank?.tankName || updated.crop?.tank?.name || 'Tank',
+      tankName: updatedData.tankName || updated.crop?.tank?.tankName || updated.crop?.tank?.name || 'Tank',
+      siteName: updatedData.siteName || updated.crop?.tank?.site?.siteName || '',
     };
     setExpenses((prev) => prev.map((item) => (String(item.id) === targetId ? { ...item, ...normalized } : item)));
     emitDataMutation('EXPENSE', 'UPDATE', normalized);

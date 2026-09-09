@@ -138,10 +138,27 @@ export default function FarmSetup() {
         savedData = updatedRes.data || updatedRes || farmPayload;
         setExistingFarmData(savedData);
       } else {
-        const createdRes = await farmService.createFarm(farmPayload);
-        savedData = createdRes.data || createdRes;
-        setExistingFarmId(savedData?.id || 'new-farm');
-        setExistingFarmData(savedData || farmPayload);
+        try {
+          const createdRes = await farmService.createFarm(farmPayload);
+          savedData = createdRes.data || createdRes;
+          setExistingFarmId(savedData?.id || 'new-farm');
+          setExistingFarmData(savedData || farmPayload);
+        } catch (createErr) {
+          if (createErr.message && createErr.message.toLowerCase().includes('already exists')) {
+            const currentFarmRes = await farmService.getFarm();
+            const currentFarm = currentFarmRes.data || currentFarmRes;
+            if (currentFarm && currentFarm.id) {
+              setExistingFarmId(currentFarm.id);
+              const updatedRes = await farmService.updateFarm(currentFarm.id, farmPayload);
+              savedData = updatedRes.data || updatedRes || farmPayload;
+              setExistingFarmData(savedData);
+            } else {
+              throw createErr;
+            }
+          } else {
+            throw createErr;
+          }
+        }
       }
       await refreshAuthData();
       emitDataMutation('FARM', existingFarmId ? 'UPDATE' : 'CREATE', savedData);

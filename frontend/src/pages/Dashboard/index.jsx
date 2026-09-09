@@ -93,6 +93,46 @@ export default function Dashboard() {
   const activeCropsCount = activeCropsList.length > 0 ? activeCropsList.length : (stats.activeCrops ?? 0);
   const completedCropsCount = completedCropsList.length > 0 ? completedCropsList.length : (stats.completedCrops ?? 0);
 
+  // Dynamic FCR Ratio calculation for completed batches
+  const completedBatchesFcr = useMemo(() => {
+    // 1. Prefer backend statistics value if available
+    if (stats.fcrRatio !== undefined && stats.fcrRatio !== null && stats.fcrRatio !== '') {
+      return String(stats.fcrRatio);
+    }
+
+    // 2. Otherwise calculate dynamically from completed crops context
+    if (completedCropsList.length > 0) {
+      let cumulativeFeed = 0;
+      let totalHarvest = 0;
+
+      completedCropsList.forEach((crop) => {
+        const cropHarvests = (harvests || []).filter(
+          (h) => String(h.cropId || h.crop?.id) === String(crop.id)
+        );
+        const effectiveHarvests = cropHarvests.length > 0 ? cropHarvests : (crop.harvests || []);
+
+        const feedSum = (crop.feedEntries || []).reduce(
+          (acc, f) => acc + (parseFloat(f.quantity) || 0),
+          0
+        );
+        const harvestSum = effectiveHarvests.reduce(
+          (acc, h) => acc + (parseFloat(h.harvestWeight || h.production) || 0),
+          0
+        );
+
+        cumulativeFeed += feedSum;
+        totalHarvest += harvestSum;
+      });
+
+      if (totalHarvest > 0) {
+        return (cumulativeFeed / totalHarvest).toFixed(2);
+      }
+      return '0.00';
+    }
+
+    return '0.00';
+  }, [stats.fcrRatio, completedCropsList, harvests]);
+
   // SIMPLIFIED 3 CARDS ONLY (Total Tanks / Ponds, Active Crops, Completed Batches)
   const farmSummaryCards = [
     {
@@ -117,7 +157,8 @@ export default function Dashboard() {
       id: 'completedBatches',
       title: 'COMPLETED BATCHES',
       value: completedCropsCount,
-      description: `${completedCropsCount} batches completed`,
+      description: `${completedCropsCount} ${completedCropsCount === 1 ? 'batch' : 'batches'} completed`,
+      fcrRatio: completedBatchesFcr,
       icon: CheckCircle2,
       bgColor: 'bg-cyan-50 text-cyan-700 border-cyan-200',
       action: () => setIsCompletedCropsReviewOpen(true),
@@ -223,6 +264,8 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
           {farmSummaryCards.map((stat) => {
             const Icon = stat.icon;
+            const isCompletedBatchesCard = stat.id === 'completedBatches';
+
             return (
               <Card
                 key={stat.id}
@@ -231,19 +274,35 @@ export default function Dashboard() {
                 onClick={stat.action}
                 className="flex flex-col justify-between border-border/70 shadow-2xs hover:shadow-md cursor-pointer transition-all hover:border-primary/40 group"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider group-hover:text-primary transition-colors">
-                      {stat.title}
-                    </span>
-                    <span className="text-3xl font-extrabold text-text-primary mt-1.5 tracking-tight">
-                      {loading ? '...' : stat.value}
-                    </span>
+                <div>
+                  <div className="flex items-start justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider group-hover:text-primary transition-colors">
+                        {stat.title}
+                      </span>
+                      <span className="text-3xl font-extrabold text-text-primary mt-1.5 tracking-tight">
+                        {loading ? '...' : stat.value}
+                      </span>
+                    </div>
+
+                    <div className={`w-10 h-10 rounded-xl ${stat.bgColor} flex items-center justify-center shrink-0 border shadow-2xs transition-transform group-hover:scale-110`}>
+                      <Icon className="w-5 h-5" />
+                    </div>
                   </div>
 
-                  <div className={`w-10 h-10 rounded-xl ${stat.bgColor} flex items-center justify-center shrink-0 border shadow-2xs transition-transform group-hover:scale-110`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
+                  {/* FCR RATIO Section for Completed Batches */}
+                  {isCompletedBatchesCard && (
+                    <div className="mt-3 pt-2.5 border-t border-border/50 flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
+                          FCR Ratio
+                        </span>
+                        <span className="text-xl font-black text-cyan-800 tracking-tight mt-0.5">
+                          {loading ? '...' : (stat.fcrRatio ?? '0.00')}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-3.5 pt-2.5 border-t border-border/50 flex items-center justify-between text-xs text-text-secondary">
@@ -626,6 +685,19 @@ export default function Dashboard() {
                 // Net Profit = Total Revenue - Total Crop Expenses
                 const netProfit = Math.round(totalRevenue - totalCropExpenses);
 
+                // Exact FCR Ratio calculation for this completed batch: Cumulative Feed Weight ÷ Total Harvest Weight
+                const cumulativeFeedKg = (crop.feedEntries || []).reduce(
+                  (acc, f) => acc + (parseFloat(f.quantity) || 0),
+                  0
+                );
+                const totalHarvestKg = fallbackHarvests.reduce(
+                  (acc, h) => acc + (parseFloat(h.harvestWeight || h.production) || 0),
+                  0
+                );
+                const batchFcr = totalHarvestKg > 0
+                  ? (cumulativeFeedKg / totalHarvestKg).toFixed(2)
+                  : '0.00';
+
                 return (
                   <div
                     key={crop.id}
@@ -697,7 +769,7 @@ export default function Dashboard() {
                       <span className="text-[10px] font-bold uppercase text-cyan-900 block tracking-wider">
                         Financial & Harvest Details
                       </span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
                         {/* 1. SHRIMP COUNT */}
                         <div className="bg-surface p-2.5 rounded-lg border border-cyan-100 flex flex-col justify-center">
                           <span className="text-[10px] font-semibold text-text-secondary uppercase block">
@@ -737,6 +809,19 @@ export default function Dashboard() {
                           </span>
                           <span className={`font-extrabold text-sm mt-0.5 ${netProfit >= 0 ? 'text-emerald-700' : 'text-danger'}`}>
                             ₹{netProfit.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+
+                        {/* 5. FCR RATIO */}
+                        <div className="bg-surface p-2.5 rounded-lg border border-cyan-200/90 flex flex-col justify-center shadow-2xs">
+                          <span className="text-[10px] font-semibold text-text-secondary uppercase block">
+                            FCR Ratio
+                          </span>
+                          <span className="font-extrabold text-sm text-cyan-800 mt-0.5">
+                            {batchFcr}
+                          </span>
+                          <span className="text-[9px] text-text-secondary mt-0.5" title="Cumulative Feed ÷ Harvest Weight">
+                            {cumulativeFeedKg.toLocaleString('en-IN')} kg / {totalHarvestKg.toLocaleString('en-IN')} kg
                           </span>
                         </div>
                       </div>

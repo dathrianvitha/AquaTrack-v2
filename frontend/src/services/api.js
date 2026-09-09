@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Base API URL configuration
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  import.meta.env.VITE_API_URL || '/api';
 
 /**
  * Production-ready Axios instance for AquaTrack API requests.

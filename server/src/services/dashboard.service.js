@@ -28,7 +28,7 @@ export const getDashboard = async (userId) => {
         }
     });
 
-    const completedCrops = await prisma.crop.count({
+    const completedCropsData = await prisma.crop.findMany({
         where: {
             tank: {
                 site: {
@@ -36,8 +36,56 @@ export const getDashboard = async (userId) => {
                 }
             },
             status: "COMPLETED"
+        },
+        include: {
+            tank: true,
+            feedEntries: true,
+            harvests: true
+        },
+        orderBy: {
+            updatedAt: "desc"
         }
     });
+
+    const completedCrops = completedCropsData.length;
+
+    let totalCompletedFeedWeight = 0;
+    let totalCompletedHarvestWeight = 0;
+
+    const completedBatches = completedCropsData.map((crop) => {
+        const cumulativeFeedWeight = (crop.feedEntries || []).reduce(
+            (sum, item) => sum + (Number(item.quantity) || 0),
+            0
+        );
+
+        const totalHarvestWeight = (crop.harvests || []).reduce(
+            (sum, item) => sum + (Number(item.harvestWeight) || 0),
+            0
+        );
+
+        totalCompletedFeedWeight += cumulativeFeedWeight;
+        totalCompletedHarvestWeight += totalHarvestWeight;
+
+        const fcr = totalHarvestWeight > 0
+            ? Number((cumulativeFeedWeight / totalHarvestWeight).toFixed(2))
+            : 0;
+
+        return {
+            cropId: crop.id,
+            cropName: crop.cropName,
+            batchNumber: crop.batchNumber,
+            tankId: crop.tankId,
+            tankName: crop.tank?.tankName || "Tank",
+            stockingDate: crop.stockingDate,
+            cumulativeFeedWeight: Number(cumulativeFeedWeight.toFixed(2)),
+            totalHarvestWeight: Number(totalHarvestWeight.toFixed(2)),
+            fcrRatio: fcr.toFixed(2)
+        };
+    });
+
+    const overallFcr = totalCompletedHarvestWeight > 0
+        ? (totalCompletedFeedWeight / totalCompletedHarvestWeight).toFixed(2)
+        : "0.00";
 
     const feedEntries = await prisma.feedEntry.findMany({
         where: {
@@ -165,14 +213,13 @@ export const getDashboard = async (userId) => {
         },
 
         statistics: {
-
             totalTanks: tanks.length,
-
             activeCrops: activeCrops.length,
-
-            completedCrops
-
+            completedCrops,
+            fcrRatio: overallFcr,
+            completedBatches
         },
+        completedBatches,
 
         finance: {
 

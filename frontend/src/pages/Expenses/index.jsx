@@ -28,6 +28,7 @@ export default function Expenses() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [viewingExpense, setViewingExpense] = useState(null);
@@ -70,11 +71,13 @@ export default function Expenses() {
   // Form Handlers
   const handleOpenAdd = () => {
     setEditingExpense(null);
+    setFormError('');
     setIsFormOpen(true);
   };
 
   const handleOpenEdit = (exp) => {
     setEditingExpense(exp);
+    setFormError('');
     setIsFormOpen(true);
     if (isDetailsOpen) setIsDetailsOpen(false);
   };
@@ -92,6 +95,7 @@ export default function Expenses() {
 
   const handleSaveExpense = async (formData) => {
     setIsSubmitting(true);
+    setFormError('');
     try {
       if (editingExpense) {
         await updateExpense(editingExpense.id, formData);
@@ -102,6 +106,7 @@ export default function Expenses() {
       setEditingExpense(null);
     } catch (err) {
       console.error('Error saving expense:', err);
+      setFormError(err.response?.data?.message || err.message || 'Failed to save expense');
     } finally {
       setIsSubmitting(false);
     }
@@ -176,7 +181,7 @@ export default function Expenses() {
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase text-text-secondary tracking-wider block">Total Records</span>
-              <span className="text-lg font-bold text-text-primary tracking-tight">{stats.totalCount}</span>
+              <span className="text-lg font-bold text-text-primary tracking-tight">{stats.totalRecords}</span>
             </div>
           </div>
         </Card>
@@ -230,13 +235,13 @@ export default function Expenses() {
           setIsFormOpen(false);
           setEditingExpense(null);
         }}
-        title={editingExpense ? 'Edit Expense Record' : 'Add New Expense'}
-        description={
+        title={editingExpense ? "Edit Expense Record" : "Add New Expense"}
+        subtitle={
           editingExpense
-            ? `Update expense record for ${editingExpense.category || 'Expense'}`
-            : 'Record a new operating expenditure for your farm ponds.'
+            ? "Update operating expenditure parameters."
+            : "Record a new operating expenditure for your farm ponds."
         }
-        size="md"
+        size="lg"
       >
         <ExpenseForm
           initialData={editingExpense}
@@ -246,6 +251,7 @@ export default function Expenses() {
             setEditingExpense(null);
           }}
           isSubmitting={isSubmitting}
+          serverError={formError}
         />
       </Modal>
 

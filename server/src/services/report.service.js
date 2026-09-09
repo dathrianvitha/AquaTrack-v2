@@ -214,59 +214,41 @@ export const getCompletedCropReport = async (
    Helper: Calculate Crop Pond Lease Cost
 ----------------------------------------------*/
 const getCropPondLeaseCost = async (tankId, crop) => {
-    const pondLeases = await prisma.pondLease.findMany({
+    // 1. Check direct leases for this tank
+    let pondLeases = await prisma.pondLease.findMany({
         where: { tankId }
     });
 
-    if (!pondLeases || pondLeases.length === 0) return 0;
-
-    const cropStartDate = new Date(crop.stockingDate);
-
-    let cropEndDate;
-    if (crop.status === "ACTIVE") {
-        cropEndDate = new Date();
-    } else {
-        const harvest = await prisma.harvest.findFirst({
-            where: { cropId: crop.id },
-            orderBy: { harvestDate: "desc" }
-        });
-        cropEndDate = harvest?.harvestDate
-            ? new Date(harvest.harvestDate)
-            : crop.expectedHarvestDate
-                ? new Date(crop.expectedHarvestDate)
-                : new Date(crop.updatedAt);
+    if (pondLeases && pondLeases.length > 0) {
+        return pondLeases.reduce((sum, l) => sum + (parseFloat(l.totalLeaseAmount) || 0), 0);
     }
 
-    let totalCost = 0;
-    for (const lease of pondLeases) {
-        const leaseStart = new Date(lease.leaseStartDate);
-        const leaseEnd = new Date(lease.leaseEndDate);
+    // 2. If no direct lease on this tank, check if any lease was recorded for tanks in the same site
+    const currentTank = await prisma.tank.findUnique({
+        where: { id: tankId },
+        include: { site: true }
+    });
 
-        leaseStart.setUTCHours(0, 0, 0, 0);
-        leaseEnd.setUTCHours(0, 0, 0, 0);
-
-        if (leaseEnd >= leaseStart) {
-            const diffTime = leaseEnd.getTime() - leaseStart.getTime();
-            const totalLeaseDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
-            const dailyLeaseCost = totalLeaseDays > 0 ? (lease.totalLeaseAmount / totalLeaseDays) : 0;
-
-            const startNorm = new Date(cropStartDate);
-            const endNorm = new Date(cropEndDate);
-            startNorm.setUTCHours(0, 0, 0, 0);
-            endNorm.setUTCHours(0, 0, 0, 0);
-
-            const cropOverlapStart = startNorm > leaseStart ? startNorm : leaseStart;
-            const cropOverlapEnd = endNorm < leaseEnd ? endNorm : leaseEnd;
-
-            if (cropOverlapStart <= cropOverlapEnd) {
-                const overlapTime = cropOverlapEnd.getTime() - cropOverlapStart.getTime();
-                const overlappingDays = Math.round(overlapTime / (1000 * 60 * 60 * 24)) + 1;
-                totalCost += Math.round(dailyLeaseCost * Math.max(0, overlappingDays) * 100) / 100;
+    if (currentTank?.siteId) {
+        const siteLeases = await prisma.pondLease.findMany({
+            where: {
+                tank: {
+                    siteId: currentTank.siteId
+                }
             }
+        });
+
+        if (siteLeases && siteLeases.length > 0) {
+            const tanksInSite = await prisma.tank.count({
+                where: { siteId: currentTank.siteId }
+            });
+            const tankCount = Math.max(1, tanksInSite);
+            const totalSiteLease = siteLeases.reduce((sum, l) => sum + (parseFloat(l.totalLeaseAmount) || 0), 0);
+            return Math.round((totalSiteLease / tankCount) * 100) / 100;
         }
     }
 
-    return Math.round(totalCost * 100) / 100;
+    return 0;
 };
 
 /* ---------------------------------------------
@@ -379,27 +361,30 @@ const buildReport = async (
 
     });
 
-    categoryBreakdown["Feed"] = totalFeedCost;
+    if (totalFeedCost > 0) {
+        categoryBreakdown["Feed"] = totalFeedCost;
+    }
 
-    categoryBreakdown["Medicine"] = totalMedicineCost;
+    if (totalMedicineCost > 0) {
+        categoryBreakdown["Medicine"] = totalMedicineCost;
+    }
 
-    if (totalPondLeaseCost > 0 || !categoryBreakdown["Pond Lease"]) {
-
+    if (totalPondLeaseCost > 0) {
         categoryBreakdown["Pond Lease"] = (categoryBreakdown["Pond Lease"] || 0) + totalPondLeaseCost;
-
     }
 
     const pieChartData = Object.entries(
 
         categoryBreakdown
 
-    ).map(
+    ).filter(([_, amount]) => amount > 0)
+    .map(
 
         ([category, amount]) => ({
 
             category,
 
-            amount
+            amount: Math.round(amount * 100) / 100
 
         })
 
@@ -452,27 +437,17 @@ const buildReport = async (
         },
 
         crop: {
-
             id: crop.id,
-
             cropName: crop.cropName,
-
+            batchNumber: crop.batchNumber,
             status: crop.status,
-
             stockingDate: crop.stockingDate,
-
             expectedHarvestDate: crop.expectedHarvestDate,
-
             cropDuration: crop.cropDuration,
-
             currentDay:
-
                 crop.status === "ACTIVE"
-
                     ? currentDay
-
                     : crop.cropDuration
-
         },
 
         summary: {
@@ -501,10 +476,159 @@ const buildReport = async (
 
         medicineHistory: medicines,
 
-        expenseHistory: expenses,
+        expenseHistory: totalPondLeaseCost > 0
+            ? [
+                {
+                    id: `lease-${tank.id}`,
+                    category: "Pond Lease",
+                    description: `Pond Lease Allocation (${tank.tankName})`,
+                    amount: totalPondLeaseCost,
+                    paymentMode: "BANK",
+                    date: crop.stockingDate,
+                    notes: `Pond lease allocation of ₹${totalPondLeaseCost.toLocaleString()} for culture period`
+                },
+                ...expenses
+            ]
+            : expenses,
 
         harvestHistory: harvests
 
     };
 
+};
+
+/* ---------------------------------------------
+   Get Comprehensive Farm Overview Report
+   Aggregates all crops, feed, expenses, leases, and harvests
+----------------------------------------------*/
+export const getFarmOverviewReport = async (userId) => {
+    const farm = await getUserFarm(userId);
+
+    const crops = await prisma.crop.findMany({
+        where: {
+            tank: {
+                site: {
+                    farmId: farm.id
+                }
+            }
+        },
+        include: {
+            tank: {
+                include: {
+                    site: true
+                }
+            },
+            feedEntries: true,
+            expenses: true,
+            harvests: true
+        }
+    });
+
+    const medicines = await prisma.medicine.findMany({
+        where: {
+            tank: {
+                site: {
+                    farmId: farm.id
+                }
+            }
+        },
+        orderBy: { date: "desc" }
+    });
+
+    const pondLeases = await prisma.pondLease.findMany({
+        where: {
+            tank: {
+                site: {
+                    farmId: farm.id
+                }
+            }
+        },
+        include: {
+            tank: true
+        }
+    });
+
+    const allFeedEntries = crops.flatMap(c => c.feedEntries).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const totalFeedCost = allFeedEntries.reduce((sum, f) => sum + (f.totalCost || 0), 0);
+
+    const allExpenses = crops.flatMap(c => c.expenses).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const totalExpenseCost = allExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+    const totalMedicineCost = medicines.reduce((sum, m) => sum + (m.cost || 0), 0);
+    const totalPondLeaseCost = pondLeases.reduce((sum, l) => sum + (parseFloat(l.totalLeaseAmount) || 0), 0);
+    const totalExpenses = totalFeedCost + totalMedicineCost + totalExpenseCost + totalPondLeaseCost;
+
+    const allHarvests = crops.flatMap(c => c.harvests).sort((a, b) => new Date(b.harvestDate) - new Date(a.harvestDate));
+    const totalHarvestWeight = allHarvests.reduce((sum, h) => sum + (h.harvestWeight || h.production || 0), 0);
+    const totalHarvestRevenue = allHarvests.reduce((sum, h) => sum + (h.revenue || 0), 0);
+
+    const categoryBreakdown = {};
+    allExpenses.forEach(exp => {
+        categoryBreakdown[exp.category] = (categoryBreakdown[exp.category] || 0) + exp.amount;
+    });
+
+    if (totalFeedCost > 0) categoryBreakdown["Feed"] = totalFeedCost;
+    if (totalMedicineCost > 0) categoryBreakdown["Medicine"] = totalMedicineCost;
+    if (totalPondLeaseCost > 0) categoryBreakdown["Pond Lease"] = (categoryBreakdown["Pond Lease"] || 0) + totalPondLeaseCost;
+
+    const pieChartData = Object.entries(categoryBreakdown)
+        .filter(([_, amount]) => amount > 0)
+        .map(([category, amount]) => ({
+            category,
+            amount: Math.round(amount * 100) / 100
+        }));
+
+    const leaseHistoryItems = pondLeases.map(l => ({
+        id: `lease-${l.id}`,
+        category: "Pond Lease",
+        description: `Pond Lease (${l.tank?.tankName || 'Pond'})`,
+        amount: l.totalLeaseAmount,
+        paymentMode: "BANK",
+        date: l.leaseStartDate,
+        notes: `Total registered lease of ₹${l.totalLeaseAmount.toLocaleString()} for ${l.tank?.tankName || 'Pond'}`
+    }));
+
+    const allTanks = await prisma.tank.findMany({
+        where: {
+            site: {
+                farmId: farm.id
+            }
+        }
+    });
+    const totalAcres = allTanks.reduce((sum, t) => sum + (t.area || 0), 0);
+
+    return {
+        isFarmOverview: true,
+        tank: {
+            id: 'ALL',
+            tankName: 'All Ponds (Farm Total)',
+            area: totalAcres || farm.totalAcres || 0,
+            depth: 6,
+            waterSource: 'Multiple'
+        },
+        crop: {
+            id: 'ALL',
+            cropName: `${farm.farmName || 'Farm'} Overall Analytics`,
+            batchNumber: 'All Batches',
+            status: 'ACTIVE',
+            stockingDate: allFeedEntries[0]?.date || new Date(),
+            cropDuration: 120,
+            currentDay: null
+        },
+        summary: {
+            totalFeedCost,
+            totalMedicineCost,
+            totalExpenseCost,
+            totalPondLeaseCost,
+            totalExpenses,
+            totalHarvestWeight,
+            totalHarvestRevenue,
+            totalHarvestsCount: allHarvests.length
+        },
+        expenseBreakdown: pieChartData,
+        feedHistory: allFeedEntries,
+        medicineHistory: medicines,
+        expenseHistory: [...allExpenses, ...leaseHistoryItems],
+        harvestHistory: allHarvests
+    };
 };

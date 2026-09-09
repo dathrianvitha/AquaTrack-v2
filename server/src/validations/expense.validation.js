@@ -7,30 +7,58 @@ export const expenseCategories = [
     "Generator & Diesel",
     "Labour",
     "Maintenance",
-    "Salaries"
+    "Salaries",
+    "Pond Lease"
 ];
 
 export const paymentModes = [
     "CASH",
-    "UPI"
+    "UPI",
+    "BANK",
+    "CARD"
 ];
 
-export const createExpenseSchema = z.object({
+const baseExpenseSchema = z.object({
 
-    tankId: z.string().min(1, "Tank is required"),
+    tankId: z.string().optional().nullable(),
 
-    category: z.enum(expenseCategories),
+    siteId: z.string().optional().nullable(),
 
-    description: z.string().min(3),
+    category: z.string().refine((val) => expenseCategories.includes(val), {
+        message: "Invalid expense category"
+    }),
 
-    amount: z.number().positive(),
+    description: z.string().optional().nullable(),
 
-    paymentMode: z.enum(paymentModes),
+    amount: z.coerce.number().positive("Amount must be greater than 0"),
+
+    paymentMode: z.preprocess(
+        (val) => {
+            if (!val) return "CASH";
+            const upper = String(val).toUpperCase().trim();
+            if (upper.includes("UPI") || upper.includes("NET") || upper.includes("BANK") || upper.includes("ONLINE")) {
+                return "UPI";
+            }
+            if (upper.includes("CARD")) {
+                return "CARD";
+            }
+            return "CASH";
+        },
+        z.enum(["CASH", "UPI", "BANK", "CARD"])
+    ),
 
     date: z.string(),
 
-    notes: z.string().optional()
+    notes: z.string().optional().nullable()
 
 });
 
-export const updateExpenseSchema = createExpenseSchema.partial();
+export const createExpenseSchema = baseExpenseSchema.refine(
+    (data) => Boolean(data.tankId || data.siteId),
+    {
+        message: "Tank or Site is required",
+        path: ["tankId"]
+    }
+);
+
+export const updateExpenseSchema = baseExpenseSchema.partial();
