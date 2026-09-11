@@ -57,47 +57,51 @@ export default function PondLeaseManagement() {
 
   const [formError, setFormError] = useState('');
 
-  // Calculate total site lease amount safely: No. of Acres * Amount Per Acre
-  const calculateSiteTotal = (acres, amountPerAcre) => {
-    const a = parseFloat(acres);
+  // Calculate total lease amount: Tank Registered Area (from selected tank) * Amount Per Acre (from Step 1)
+  const calculateTotalLeaseAmount = (tankId, amountPerAcre) => {
     const cost = parseFloat(amountPerAcre);
-    if (!isNaN(a) && !isNaN(cost) && a > 0 && cost > 0) {
-      return Math.round(a * cost * 100) / 100;
-    }
-    return null;
+    if (isNaN(cost) || cost <= 0 || !tankId) return null;
+    const selectedTank = tanks.find((t) => String(t.id) === String(tankId));
+    if (!selectedTank) return null;
+    const area = parseFloat(selectedTank.area);
+    if (isNaN(area) || area <= 0) return null;
+    return Math.round(area * cost * 100) / 100;
   };
 
-  // Live Reactive synchronization: update second tab Total Lease Amount whenever acres or amount per acre changes
-  useEffect(() => {
-    const total = calculateSiteTotal(siteFormData.acres, siteFormData.amountPerAcre);
-    if (total !== null) {
-      setFormData((prev) => ({
-        ...prev,
-        totalLeaseAmount: String(total),
-      }));
-    }
-  }, [siteFormData.acres, siteFormData.amountPerAcre]);
+  const handleSiteChange = (val) => {
+    setSiteFormData((prev) => ({ ...prev, siteId: val }));
+    const siteTanks = val
+      ? tanks.filter((t) => String(t.siteId || t.site?.id) === String(val))
+      : tanks;
+    const defaultTank = siteTanks[0] || null;
+    const defaultTankId = defaultTank ? String(defaultTank.id) : '';
+    const total = calculateTotalLeaseAmount(defaultTankId, siteFormData.amountPerAcre);
+    setFormData((fPrev) => ({
+      ...fPrev,
+      tankId: defaultTankId,
+      totalLeaseAmount: total !== null ? String(total) : fPrev.totalLeaseAmount,
+    }));
+  };
 
   const handleAcresChange = (val) => {
-    setSiteFormData((prev) => {
-      const updated = { ...prev, acres: val };
-      const total = calculateSiteTotal(val, prev.amountPerAcre);
-      if (total !== null) {
-        setFormData((fPrev) => ({ ...fPrev, totalLeaseAmount: String(total) }));
-      }
-      return updated;
-    });
+    setSiteFormData((prev) => ({ ...prev, acres: val }));
   };
 
   const handleAmountPerAcreChange = (val) => {
-    setSiteFormData((prev) => {
-      const updated = { ...prev, amountPerAcre: val };
-      const total = calculateSiteTotal(prev.acres, val);
-      if (total !== null) {
-        setFormData((fPrev) => ({ ...fPrev, totalLeaseAmount: String(total) }));
-      }
-      return updated;
-    });
+    setSiteFormData((prev) => ({ ...prev, amountPerAcre: val }));
+    const total = calculateTotalLeaseAmount(formData.tankId, val);
+    if (total !== null) {
+      setFormData((fPrev) => ({ ...fPrev, totalLeaseAmount: String(total) }));
+    }
+  };
+
+  const handleTankChange = (tankId) => {
+    const total = calculateTotalLeaseAmount(tankId, siteFormData.amountPerAcre);
+    setFormData((prev) => ({
+      ...prev,
+      tankId,
+      ...(total !== null ? { totalLeaseAmount: String(total) } : {}),
+    }));
   };
 
   // Calculate live days & daily cost for form preview
@@ -127,8 +131,15 @@ export default function PondLeaseManagement() {
   const handleOpenAdd = () => {
     setEditingLease(null);
     setActiveTab('siteLease');
+    const initialSiteId = sites[0]?.id ? String(sites[0].id) : '';
+    const siteTanks = initialSiteId
+      ? tanks.filter((t) => String(t.siteId || t.site?.id) === String(initialSiteId))
+      : tanks;
+    const defaultTank = siteTanks[0] || null;
+    const defaultTankId = defaultTank ? String(defaultTank.id) : '';
+
     setSiteFormData({
-      siteId: sites[0]?.id ? String(sites[0].id) : '',
+      siteId: initialSiteId,
       acres: '1',
       amountPerAcre: '',
       leaseStartDate: new Date().toISOString().split('T')[0],
@@ -138,7 +149,7 @@ export default function PondLeaseManagement() {
     });
     setSiteFormError('');
     setFormData({
-      tankId: tanks[0]?.id || '',
+      tankId: defaultTankId,
       totalLeaseAmount: '',
       leaseStartDate: new Date().toISOString().split('T')[0],
       leaseEndDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -152,9 +163,25 @@ export default function PondLeaseManagement() {
   const handleOpenEdit = (lease) => {
     setEditingLease(lease);
     setActiveTab('pondLease');
+    const leaseSiteId = lease.tank?.siteId || lease.tank?.site?.id || '';
+    const leaseTankArea = lease.tank?.area ? parseFloat(lease.tank.area) : 0;
+    const derivedAmountPerAcre = (leaseTankArea > 0 && lease.totalLeaseAmount)
+      ? Math.round((lease.totalLeaseAmount / leaseTankArea) * 100) / 100
+      : '';
+
+    setSiteFormData({
+      siteId: leaseSiteId ? String(leaseSiteId) : (sites[0]?.id ? String(sites[0].id) : ''),
+      acres: leaseTankArea > 0 ? String(leaseTankArea) : '1',
+      amountPerAcre: derivedAmountPerAcre ? String(derivedAmountPerAcre) : '',
+      leaseStartDate: lease.leaseStartDate ? new Date(lease.leaseStartDate).toISOString().split('T')[0] : '',
+      leaseEndDate: lease.leaseEndDate ? new Date(lease.leaseEndDate).toISOString().split('T')[0] : '',
+      remarks: lease.remarks || '',
+      notes: '',
+    });
+
     setFormData({
-      tankId: lease.tankId,
-      totalLeaseAmount: lease.totalLeaseAmount,
+      tankId: lease.tankId ? String(lease.tankId) : '',
+      totalLeaseAmount: lease.totalLeaseAmount ? String(lease.totalLeaseAmount) : '',
       leaseStartDate: lease.leaseStartDate ? new Date(lease.leaseStartDate).toISOString().split('T')[0] : '',
       leaseEndDate: lease.leaseEndDate ? new Date(lease.leaseEndDate).toISOString().split('T')[0] : '',
       remarks: lease.remarks || '',
@@ -191,15 +218,20 @@ export default function PondLeaseManagement() {
       return;
     }
 
-    const total = calculateSiteTotal(siteFormData.acres, siteFormData.amountPerAcre);
     const siteTanks = siteFormData.siteId
       ? tanks.filter((t) => String(t.siteId || t.site?.id) === String(siteFormData.siteId))
       : tanks;
-    const defaultTank = siteTanks[0] || tanks[0];
+    const isCurrentTankInSite = siteTanks.some((t) => String(t.id) === String(formData.tankId));
+    const targetTank = isCurrentTankInSite
+      ? tanks.find((t) => String(t.id) === String(formData.tankId))
+      : (siteTanks[0] || null);
+
+    const targetTankId = targetTank ? String(targetTank.id) : '';
+    const total = calculateTotalLeaseAmount(targetTankId, siteFormData.amountPerAcre);
 
     setFormData((prev) => ({
       ...prev,
-      tankId: defaultTank ? String(defaultTank.id) : (prev.tankId || ''),
+      tankId: targetTankId,
       leaseStartDate: siteFormData.leaseStartDate || prev.leaseStartDate,
       leaseEndDate: siteFormData.leaseEndDate || prev.leaseEndDate,
       ...(total !== null ? { totalLeaseAmount: String(total) } : {}),
@@ -622,7 +654,7 @@ export default function PondLeaseManagement() {
               <select
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 value={siteFormData.siteId}
-                onChange={(e) => setSiteFormData({ ...siteFormData, siteId: e.target.value })}
+                onChange={(e) => handleSiteChange(e.target.value)}
                 required
               >
                 <option value="">Choose registered site...</option>
@@ -744,15 +776,17 @@ export default function PondLeaseManagement() {
               <select
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 value={formData.tankId}
-                onChange={(e) => setFormData({ ...formData, tankId: e.target.value })}
+                onChange={(e) => handleTankChange(e.target.value)}
                 required
               >
                 {(() => {
                   const siteTanks = siteFormData.siteId
                     ? tanks.filter((t) => String(t.siteId || t.site?.id) === String(siteFormData.siteId))
                     : tanks;
-                  const availableTanks = siteTanks.length > 0 ? siteTanks : tanks;
-                  return availableTanks.map((tank) => (
+                  if (siteTanks.length === 0) {
+                    return <option value="">No tanks available for selected site</option>;
+                  }
+                  return siteTanks.map((tank) => (
                     <option key={tank.id} value={tank.id}>
                       {tank.name || tank.tankName} {tank.site?.siteName ? `(${tank.site.siteName})` : ''}
                     </option>
