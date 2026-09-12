@@ -93,46 +93,6 @@ export default function Dashboard() {
   const activeCropsCount = activeCropsList.length > 0 ? activeCropsList.length : (stats.activeCrops ?? 0);
   const completedCropsCount = completedCropsList.length > 0 ? completedCropsList.length : (stats.completedCrops ?? 0);
 
-  // Dynamic FCR Ratio calculation for completed batches
-  const completedBatchesFcr = useMemo(() => {
-    // 1. Prefer backend statistics value if available
-    if (stats.fcrRatio !== undefined && stats.fcrRatio !== null && stats.fcrRatio !== '') {
-      return String(stats.fcrRatio);
-    }
-
-    // 2. Otherwise calculate dynamically from completed crops context
-    if (completedCropsList.length > 0) {
-      let cumulativeFeed = 0;
-      let totalHarvest = 0;
-
-      completedCropsList.forEach((crop) => {
-        const cropHarvests = (harvests || []).filter(
-          (h) => String(h.cropId || h.crop?.id) === String(crop.id)
-        );
-        const effectiveHarvests = cropHarvests.length > 0 ? cropHarvests : (crop.harvests || []);
-
-        const feedSum = (crop.feedEntries || []).reduce(
-          (acc, f) => acc + (parseFloat(f.quantity) || 0),
-          0
-        );
-        const harvestSum = effectiveHarvests.reduce(
-          (acc, h) => acc + (parseFloat(h.harvestWeight || h.production) || 0),
-          0
-        );
-
-        cumulativeFeed += feedSum;
-        totalHarvest += harvestSum;
-      });
-
-      if (totalHarvest > 0) {
-        return (cumulativeFeed / totalHarvest).toFixed(2);
-      }
-      return '0.00';
-    }
-
-    return '0.00';
-  }, [stats.fcrRatio, completedCropsList, harvests]);
-
   // SIMPLIFIED 3 CARDS ONLY (Total Tanks / Ponds, Active Crops, Completed Batches)
   const farmSummaryCards = [
     {
@@ -158,7 +118,6 @@ export default function Dashboard() {
       title: 'COMPLETED BATCHES',
       value: completedCropsCount,
       description: `${completedCropsCount} ${completedCropsCount === 1 ? 'batch' : 'batches'} completed`,
-      fcrRatio: completedBatchesFcr,
       icon: CheckCircle2,
       bgColor: 'bg-cyan-50 text-cyan-700 border-cyan-200',
       action: () => setIsCompletedCropsReviewOpen(true),
@@ -264,7 +223,6 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
           {farmSummaryCards.map((stat) => {
             const Icon = stat.icon;
-            const isCompletedBatchesCard = stat.id === 'completedBatches';
 
             return (
               <Card
@@ -289,20 +247,6 @@ export default function Dashboard() {
                       <Icon className="w-5 h-5" />
                     </div>
                   </div>
-
-                  {/* FCR RATIO Section for Completed Batches */}
-                  {isCompletedBatchesCard && (
-                    <div className="mt-3 pt-2.5 border-t border-border/50 flex items-center justify-between">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
-                          FCR Ratio
-                        </span>
-                        <span className="text-xl font-black text-cyan-800 tracking-tight mt-0.5">
-                          {loading ? '...' : (stat.fcrRatio ?? '0.00')}
-                        </span>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 <div className="mt-3.5 pt-2.5 border-t border-border/50 flex items-center justify-between text-xs text-text-secondary">

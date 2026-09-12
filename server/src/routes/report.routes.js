@@ -7,7 +7,8 @@ import {
     getActiveTankReportController,
     getCompletedCropsController,
     getCompletedCropReportController,
-    getFarmOverviewReportController
+    getFarmOverviewReportController,
+    getSiteOverviewReportController
 } from "../controllers/report.controller.js";
 
 const router = Router();
@@ -19,6 +20,15 @@ router.get(
     "/farm-overview",
     auth,
     getFarmOverviewReportController
+);
+
+/* ---------------------------------------------
+   Get Site Overview Report (All Ponds in Site)
+----------------------------------------------*/
+router.get(
+    "/site/:siteId",
+    auth,
+    getSiteOverviewReportController
 );
 
 /* ---------------------------------------------
