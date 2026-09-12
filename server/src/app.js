@@ -16,16 +16,12 @@ const allowedOrigins = [
 app.use(
     cors({
         origin: (origin, callback) => {
-            // Allow requests without an Origin header
-            // (curl, Postman, server-to-server requests, etc.)
             if (!origin) {
                 return callback(null, true);
             }
 
             const cleanOrigin = origin.replace(/\/$/, "");
 
-            // Allow localhost / 127.0.0.1 / IPv6 localhost
-            // on any development port.
             const isLocal = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(
                 cleanOrigin
             );
@@ -42,18 +38,6 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-app.use((req, res, next) => {
-    console.log(
-        `👉 ${req.method} ${req.url} | Origin: ${req.headers.origin || "none"}`
-    );
-
-    if (req.url.includes("/auth/login")) {
-        console.log("👉 Login Body:", JSON.stringify(req.body));
-    }
-
-    next();
-});
 
 app.use("/api", router);
 
