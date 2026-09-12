@@ -3,7 +3,8 @@ import {
     getActiveTankReport,
     getCompletedCrops,
     getCompletedCropReport,
-    getFarmOverviewReport
+    getFarmOverviewReport,
+    getSiteOverviewReport
 } from "../services/report.service.js";
 
 /* ---------------------------------------------
@@ -173,6 +174,25 @@ export const getFarmOverviewReportController = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Farm overview report fetched successfully",
+            data: report
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+/* ---------------------------------------------
+   Get Site Overview Report (All Ponds in Site)
+----------------------------------------------*/
+export const getSiteOverviewReportController = async (req, res) => {
+    try {
+        const report = await getSiteOverviewReport(req.user.id, req.params.siteId);
+        return res.status(200).json({
+            success: true,
+            message: "Site overview report fetched successfully",
             data: report
         });
     } catch (error) {

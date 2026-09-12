@@ -18,6 +18,20 @@ export const reportService = {
   },
 
   /**
+   * GET /api/reports/site/:siteId
+   * Fetches aggregated site-level report across all tanks, crops, feed, medicines, pond leases, and expenses for a site.
+   */
+  async getSiteOverviewReport(siteId) {
+    if (!siteId) throw new Error('Site ID is required');
+    try {
+      const response = await api.get(`/reports/site/${siteId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(error.message || 'Failed to fetch site overview report');
+    }
+  },
+
+  /**
    * GET /api/reports/tanks
    * Fetches tanks for reports, with fallback to GET /api/tanks to ensure tank dropdown is always populated.
    */
