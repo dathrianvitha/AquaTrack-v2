@@ -36,9 +36,14 @@ export const CropDetailsModal = ({
   const displayTitle = `Batch ${cleanBatchNum}`;
   const displayVariety = seedVariety || 'Not specified';
 
-  // Format tank name cleanly to NEVER display water source
+  // Format tank name and site name cleanly: e.g. "K1 — Site 1"
   const rawTank = tankName || crop.tank?.name || crop.tank?.tankName || 'Not assigned';
-  const displayTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
+  const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
+  const rawSite = crop?.siteName || crop?.site?.siteName || crop?.tank?.site?.siteName || crop?.tank?.siteName || '';
+  const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+  const displayTank = cleanSite && !cleanTank.toLowerCase().includes(cleanSite.toLowerCase())
+    ? `${cleanTank} — ${cleanSite}`
+    : cleanTank;
 
   const validStockingDate = stockingDate ? new Date(stockingDate) : null;
   const formattedStockingDate = validStockingDate && !isNaN(validStockingDate.getTime())
