@@ -14,11 +14,14 @@ import { HarvestForm } from '../../components/HarvestForm';
 import { HarvestFilters } from '../../components/HarvestFilters';
 import { HarvestDetailsModal } from '../../components/HarvestDetailsModal';
 import { useHarvests } from '../../context/HarvestContext';
+import { useTanks } from '../../context/TankContext';
 
 export default function Harvest() {
   const { harvests = [], addHarvest, updateHarvest, deleteHarvest, loading, error } = useHarvests();
+  const { tanks = [] } = useTanks();
 
   // Filter State
+  const [siteFilter, setSiteFilter] = useState('');
   const [tankFilter, setTankFilter] = useState('');
 
   // Modal Control States
@@ -33,21 +36,47 @@ export default function Harvest() {
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [deletingHarvest, setDeletingHarvest] = useState(null);
 
-  // Filter Harvest List Safely
+  const handleSiteChange = (newSiteId) => {
+    setSiteFilter(newSiteId);
+    if (tankFilter) {
+      const selectedTank = tanks.find((t) => String(t.id) === String(tankFilter));
+      if (selectedTank && newSiteId && String(selectedTank.siteId) !== String(newSiteId)) {
+        setTankFilter('');
+      }
+    }
+  };
+
+  // Filter Harvest List Safely by Site ID and Tank ID
   const filteredHarvests = useMemo(() => {
     const list = harvests || [];
 
     return list.filter((harv) => {
       if (!harv) return false;
-      if (!tankFilter) return true;
 
       const harvTankId = String(harv.tankId || harv.crop?.tankId || harv.crop?.tank?.id || '');
-      const harvTankName = String(harv.tankName || harv.crop?.tank?.tankName || harv.crop?.tank?.name || '').toLowerCase();
-      const filterVal = String(tankFilter).toLowerCase();
+      const tankObj = tanks.find((t) => String(t.id) === harvTankId);
 
-      return harvTankId === String(tankFilter) || harvTankName === filterVal || harvTankName.includes(filterVal);
+      const harvSiteId = String(
+        harv.crop?.tank?.siteId ||
+        harv.crop?.tank?.site?.id ||
+        harv.siteId ||
+        tankObj?.siteId ||
+        ''
+      );
+
+      // 1. Site filter check
+      if (siteFilter && harvSiteId !== String(siteFilter)) {
+        return false;
+      }
+
+      // 2. Tank filter check
+      if (tankFilter && harvTankId !== String(tankFilter)) {
+        return false;
+      }
+
+      return true;
     });
-  }, [harvests, tankFilter]);
+  }, [harvests, siteFilter, tankFilter, tanks]);
 
   // Form Handlers
   const handleOpenAdd = () => {
@@ -103,6 +132,7 @@ export default function Harvest() {
   };
 
   const handleResetFilters = () => {
+    setSiteFilter('');
     setTankFilter('');
   };
 
@@ -125,8 +155,10 @@ export default function Harvest() {
         }
       />
 
-      {/* 2. FILTERS AREA (Select Tank Dropdown) */}
+      {/* 2. FILTERS AREA (Select Site & Tank Dropdowns) */}
       <HarvestFilters
+        siteFilter={siteFilter}
+        onSiteChange={handleSiteChange}
         tankFilter={tankFilter}
         onTankChange={setTankFilter}
         onReset={handleResetFilters}
@@ -150,15 +182,15 @@ export default function Harvest() {
           <EmptyState
             title="No Harvest Logs Found"
             description={
-              tankFilter
-                ? "No harvest logs match your selected tank filter. Try resetting filters."
+              siteFilter || tankFilter
+                ? "No harvest logs match your selected filter criteria. Try resetting filters."
                 : "Register pond harvest yields to track production revenue."
             }
             actionLabel={
-              tankFilter ? "Reset Filters" : "Register New Harvest"
+              siteFilter || tankFilter ? "Reset Filters" : "Register New Harvest"
             }
             onAction={
-              tankFilter ? handleResetFilters : handleOpenAdd
+              siteFilter || tankFilter ? handleResetFilters : handleOpenAdd
             }
           />
         </Card>

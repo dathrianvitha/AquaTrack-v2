@@ -33,10 +33,20 @@ export const ExpenseCard = ({
 
   const displayCategory = category || description || 'Farm Expense';
 
-  // Clean tank name: e.g. "Tank A1" without "Tank: A1" prefix or water source string
-  const rawTank = tankName || expense?.tank?.name || expense?.tank?.tankName || 'A1';
-  const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
-  const tankLabel = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+  // Clean tank name: e.g. "Tank K1 — Site 1" without "Tank: K1" prefix or water source string
+  const rawTank = tankName || expense?.tank?.name || expense?.tank?.tankName || '';
+  const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim();
+  const siteName = expense.siteName || expense.tank?.site?.siteName || expense.tank?.site?.name || expense.crop?.tank?.site?.siteName || '';
+  
+  let tankLabel = '';
+  if (cleanTank && cleanTank !== 'Not assigned') {
+    const formattedTank = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+    tankLabel = siteName ? `${formattedTank} — ${siteName}` : formattedTank;
+  } else if (siteName) {
+    tankLabel = siteName.toLowerCase().startsWith('site') ? siteName : `Site: ${siteName}`;
+  } else {
+    tankLabel = 'Site Level Expense';
+  }
 
   const displayPayment = paymentModeDisplay || (paymentMode === 'UPI' ? 'UPI / Net Banking' : paymentMode) || 'Cash';
   const displayDate = date || 'Not specified';

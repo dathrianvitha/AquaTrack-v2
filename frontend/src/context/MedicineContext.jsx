@@ -21,16 +21,25 @@ export const MedicineProvider = ({ children }) => {
     try {
       const res = await medicineService.getMedicines();
       const list = res.data || res || [];
-      const normalized = (Array.isArray(list) ? list : []).map((rec) => ({
-        ...rec,
-        id: String(rec.id),
-        applicationDate: rec.date ? new Date(rec.date).toISOString().split('T')[0] : rec.applicationDate,
-        tankName: rec.tank?.tankName || rec.tankName || 'Tank',
-        dosage: rec.dosage ? String(rec.dosage) : '1',
-        cost: parseFloat(rec.cost) || 0,
-        quantity: parseFloat(rec.quantity) || 1,
-        status: 'Completed',
-      }));
+      const normalized = (Array.isArray(list) ? list : []).map((rec) => {
+        const rawTank = rec.tank?.tankName || rec.tank?.name || rec.tankName || 'Tank';
+        const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim();
+        const rawSite = rec.siteName || rec.site?.siteName || rec.tank?.site?.siteName || rec.tank?.siteName || '';
+        const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+
+        return {
+          ...rec,
+          id: String(rec.id),
+          tankId: String(rec.tankId || rec.tank?.id || ''),
+          applicationDate: rec.date ? new Date(rec.date).toISOString().split('T')[0] : rec.applicationDate,
+          tankName: cleanTank,
+          siteName: cleanSite,
+          dosage: rec.dosage ? String(rec.dosage) : '1',
+          cost: parseFloat(rec.cost) || 0,
+          quantity: parseFloat(rec.quantity) || 1,
+          status: 'Completed',
+        };
+      });
       setMedicineRecords(normalized);
     } catch (err) {
       console.error('Error fetching medicines:', err);

@@ -166,7 +166,11 @@ export const createHarvest = async (
             include: {
                 crop: {
                     include: {
-                        tank: true
+                        tank: {
+                            include: {
+                                site: true
+                            }
+                        }
                     }
                 }
             }
@@ -235,7 +239,11 @@ export const updateHarvest = async (
             include: {
                 crop: {
                     include: {
-                        tank: true,
+                        tank: {
+                            include: {
+                                site: true
+                            }
+                        }
                     },
                 },
             },
@@ -280,7 +288,11 @@ export const getHarvests = async (userId) => {
         include: {
             crop: {
                 include: {
-                    tank: true
+                    tank: {
+                        include: {
+                            site: true
+                        }
+                    }
                 }
             }
         },
@@ -314,7 +326,11 @@ export const getHarvestById = async (
         include: {
             crop: {
                 include: {
-                    tank: true
+                    tank: {
+                        include: {
+                            site: true
+                        }
+                    }
                 }
             }
         }

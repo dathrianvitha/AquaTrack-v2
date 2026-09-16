@@ -70,15 +70,17 @@ export default function Tanks() {
         hatcheryUnitStr.toLowerCase().includes(query);
 
       // Site filter
-      const matchesSite = siteFilter === '' || tank.siteId === siteFilter;
+      const matchesSite = siteFilter === '' || String(tank.siteId) === String(siteFilter);
 
       return matchesSearch && matchesSite;
     });
   }, [tanks, searchQuery, siteFilter]);
 
-  // Operational Metrics Summary Safely
+  // Operational Metrics Summary Safely (Derived per selected site)
   const stats = useMemo(() => {
-    const list = tanks || [];
+    const list = siteFilter
+      ? (tanks || []).filter((t) => String(t.siteId) === String(siteFilter))
+      : (tanks || []);
     const totalCount = list.length;
     const totalArea = list.reduce((acc, t) => acc + (parseFloat(t?.area) || 0), 0);
 
@@ -86,12 +88,12 @@ export default function Tanks() {
       totalCount,
       totalArea: totalArea.toFixed(1),
     };
-  }, [tanks]);
+  }, [tanks, siteFilter]);
 
   // Selected site object if siteFilter is active
   const selectedSite = useMemo(() => {
     if (!siteFilter) return null;
-    return sites.find((s) => s.id === siteFilter);
+    return sites.find((s) => String(s.id) === String(siteFilter));
   }, [sites, siteFilter]);
 
   // Form Handlers
@@ -216,6 +218,7 @@ export default function Tanks() {
             setSearchParams({});
           }
         }}
+        sites={sites}
         onReset={handleResetFilters}
       />
 

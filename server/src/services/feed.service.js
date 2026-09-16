@@ -372,17 +372,15 @@ export const getFeeds = async (
             },
 
             include: {
-
                 crop: {
-
                     include: {
-
-                        tank: true
-
+                        tank: {
+                            include: {
+                                site: true
+                            }
+                        }
                     }
-
                 }
-
             },
 
             orderBy: {
@@ -435,17 +433,15 @@ export const getFeedById = async (
             },
 
             include: {
-
                 crop: {
-
                     include: {
-
-                        tank: true
-
+                        tank: {
+                            include: {
+                                site: true
+                            }
+                        }
                     }
-
                 }
-
             }
 
         });

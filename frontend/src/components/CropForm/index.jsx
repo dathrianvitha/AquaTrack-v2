@@ -52,10 +52,16 @@ export const CropForm = ({
   const { tanks } = useTanks();
   const isEditing = Boolean(initialData?.id);
 
-  const tankSelectOptions = tanks.map((tank) => ({
-    value: tank.id,
-    label: `${tank.name} (${tank.area} Acres)`,
-  }));
+  const tankSelectOptions = tanks.map((tank) => {
+    const rawName = tank.name || tank.tankName || 'Tank';
+    const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
+    const siteName = tank.siteName || tank.site?.siteName || '';
+    const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
+    return {
+      value: tank.id,
+      label,
+    };
+  });
 
   const {
     register,

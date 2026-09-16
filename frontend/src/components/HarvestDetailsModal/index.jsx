@@ -22,7 +22,9 @@ export const HarvestDetailsModal = ({
 
   const rawTank = harvest.tankName || harvest.crop?.tank?.tankName || harvest.crop?.tank?.name || 'A1';
   const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
-  const displayTank = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+  const siteName = harvest.siteName || harvest.crop?.tank?.site?.siteName || harvest.crop?.tank?.site?.name || '';
+  const formattedTank = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+  const displayTank = siteName ? `${formattedTank} — ${siteName}` : formattedTank;
 
   const harvestWeightVal = harvest.harvestWeight !== undefined && harvest.harvestWeight !== null
     ? harvest.harvestWeight

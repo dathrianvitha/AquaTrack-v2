@@ -1,8 +1,9 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { SearchBar } from '../SearchBar';
 import { Select } from '../Select';
 import { Button } from '../Button';
+import { useSites } from '../../context/SiteContext';
 
 /**
  * Reusable TankFilters component for search & site dropdown filtering.
@@ -12,15 +13,21 @@ export const TankFilters = ({
   onSearchChange,
   siteFilter = '',
   onSiteChange,
-  sites = [],
+  sites: sitesProp,
   onReset,
   className = '',
 }) => {
+  const { sites: contextSites = [] } = useSites();
+  const sites = sitesProp || contextSites || [];
+
   const hasActiveFilters = Boolean(searchQuery || siteFilter);
 
   const siteOptions = [
     { value: '', label: 'All Sites' },
-    ...sites.map((s) => ({ value: s.id, label: s.siteName })),
+    ...(sites || []).map((s) => ({
+      value: String(s.id),
+      label: s.siteName || s.name || 'Site',
+    })),
   ];
 
   return (
@@ -38,17 +45,15 @@ export const TankFilters = ({
       {/* Filter Dropdowns & Reset */}
       <div className="flex flex-wrap items-center gap-3 shrink-0">
         {/* Site Dropdown */}
-        {sites.length > 0 && (
-          <div className="w-40 sm:w-48">
-            <Select
-              placeholder=""
-              options={siteOptions}
-              value={siteFilter}
-              onChange={(e) => onSiteChange(e.target.value)}
-              fullWidth
-            />
-          </div>
-        )}
+        <div className="w-40 sm:w-48">
+          <Select
+            placeholder=""
+            options={siteOptions}
+            value={siteFilter}
+            onChange={(e) => onSiteChange(e.target.value)}
+            fullWidth
+          />
+        </div>
 
         {/* Clear / Reset Filters Button */}
         {hasActiveFilters && (
@@ -56,7 +61,7 @@ export const TankFilters = ({
             variant="ghost"
             size="sm"
             onClick={onReset}
-            icon={<X className="w-4 h-4 text-danger" />}
+            icon={<RotateCcw className="w-3.5 h-3.5 text-danger" />}
             className="text-xs text-danger font-medium hover:bg-danger-light/50"
           >
             Reset Filters

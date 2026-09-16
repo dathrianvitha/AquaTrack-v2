@@ -59,13 +59,15 @@ export const ExpenseForm = ({
   const { sites = [] } = useSites();
   const isEditing = Boolean(initialData?.id);
 
-  // Dynamic Tank options for Seed Cost
+  // Dynamic Tank options for Seed Cost (displays Tank Name — Site Name without acres)
   const tankSelectOptions = tanks.map((tank) => {
     const rawName = tank.tankName || tank.name || 'Tank';
     const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
+    const siteName = tank.siteName || tank.site?.siteName || tank.site?.name || '';
+    const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
     return {
       value: String(tank.id),
-      label: cleanName,
+      label,
     };
   });
 

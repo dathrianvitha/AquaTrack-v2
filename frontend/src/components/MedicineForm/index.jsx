@@ -51,14 +51,15 @@ export const MedicineForm = ({
   const { stockings = [] } = useStocking();
   const isEditing = Boolean(initialData?.id);
 
-  // Format Tank label cleanly WITHOUT water source (e.g. A1 or A1 (5 Acres))
+  // Format Tank label as Tank Name — Site Name (e.g. T1 — Juvvalapalem)
   const tankSelectOptions = tanks.map((tank) => {
     const rawName = tank.name || tank.tankName || 'Tank';
-    const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
-    const areaSuffix = tank.area ? ` (${tank.area} Acres)` : '';
+    const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
+    const siteName = tank.siteName || tank.site?.siteName || '';
+    const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
     return {
       value: tank.id,
-      label: `${cleanName}${areaSuffix}`,
+      label,
     };
   });
 

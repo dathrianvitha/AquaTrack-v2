@@ -32,10 +32,16 @@ export const MedicineCard = ({
 
   const displayMedName = medicineName || 'Treatment Record';
 
-  // Clean tank name: e.g. "Tank A1" without "Tank: A1" prefix or water source string
+  // Clean tank name & site name: e.g. "Tank T1 — Juvvalapalem"
   const rawTank = tankName || record?.tank?.name || record?.tank?.tankName || 'A1';
   const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
-  const tankLabel = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+  const rawSite = record?.siteName || record?.site?.siteName || record?.tank?.site?.siteName || record?.tank?.siteName || '';
+  const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+
+  const formattedTank = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+  const tankLabel = cleanSite && !formattedTank.toLowerCase().includes(cleanSite.toLowerCase())
+    ? `${formattedTank} — ${cleanSite}`
+    : formattedTank;
 
   const numericQty = parseFloat(quantity) || 0;
   const numericCost = parseFloat(cost) || 0;

@@ -20,6 +20,7 @@ import { FeedForm } from '../../components/FeedForm';
 import { FeedFilters } from '../../components/FeedFilters';
 import { FeedDetailsModal } from '../../components/FeedDetailsModal';
 import { useFeed } from '../../context/FeedContext';
+import { useTanks } from '../../context/TankContext';
 
 export default function FeedManagement() {
   const {
@@ -31,8 +32,10 @@ export default function FeedManagement() {
     loading,
     error
   } = useFeed();
+  const { tanks = [] } = useTanks();
 
-  // Filter State (Tank & Date filters retained)
+  // Filter State (Site, Tank, & Date filters)
+  const [siteFilter, setSiteFilter] = useState('');
   const [tankFilter, setTankFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
 
@@ -55,28 +58,54 @@ export default function FeedManagement() {
     totalFeedCostRupees: analytics?.totalFeedCostRupees || 0,
   };
 
-  // Filter Feed Logs
+  // Handle Site Change (Resets Tank Filter per Requirement 9)
+  const handleSiteChange = (newSiteId) => {
+    setSiteFilter(newSiteId);
+    setTankFilter('');
+  };
+
+  const handleResetFilters = () => {
+    setSiteFilter('');
+    setTankFilter('');
+    setDateFilter('');
+  };
+
+  // Relational site tank IDs mapping
+  const siteTankIds = useMemo(() => {
+    if (!siteFilter) return null;
+    const siteTanks = (tanks || []).filter((t) => String(t.siteId) === String(siteFilter));
+    return new Set(siteTanks.map((t) => String(t.id)));
+  }, [tanks, siteFilter]);
+
+  // Filter Feed Logs using IDs/relationships
   const filteredFeedLogs = useMemo(() => {
     const list = feedLogs || [];
     return list.filter((log) => {
       if (!log) return false;
-      let matchesTank = true;
+
+      // 1. Relational Site Filter
+      if (siteFilter) {
+        const logTankId = String(log.tankId || log.crop?.tankId || log.crop?.tank?.id || '');
+        const logSiteId = String(log.siteId || log.crop?.tank?.siteId || log.crop?.tank?.site?.id || '');
+        const matchesSite = (siteTankIds && siteTankIds.has(logTankId)) || logSiteId === String(siteFilter);
+        if (!matchesSite) return false;
+      }
+
+      // 2. Relational Tank Filter
       if (tankFilter && tankFilter !== '') {
         const logTankId = String(log.tankId || log.crop?.tankId || log.crop?.tank?.id || '');
-        const logTankName = String(log.tankName || log.crop?.tank?.tankName || log.crop?.tank?.name || '').toLowerCase();
-        const filterVal = String(tankFilter).toLowerCase();
-        matchesTank = logTankId === String(tankFilter) || logTankName === filterVal || logTankName.includes(filterVal);
+        if (logTankId !== String(tankFilter)) return false;
       }
 
-      let matchesDate = true;
+      // 3. Date Filter
       if (dateFilter) {
-        const logDateStr = log.date ? new Date(log.date).toISOString().split('T')[0] : '';
-        matchesDate = logDateStr === dateFilter;
+        const logDateStr = log.date ? new Date(log.date).toISOString().split('T')[0] : (log.feedingDate || '');
+        if (logDateStr !== dateFilter) return false;
       }
 
-      return matchesTank && matchesDate;
+      return true;
     });
-  }, [feedLogs, tankFilter, dateFilter]);
+  }, [feedLogs, siteFilter, tankFilter, dateFilter, siteTankIds]);
 
   // Form Handlers
   const handleOpenAdd = () => {
@@ -102,6 +131,43 @@ export default function FeedManagement() {
     setIsDeleteOpen(true);
     if (isDetailsOpen) setIsDetailsOpen(false);
   };
+
+  // Dynamic Empty State Props according to Requirement 15
+  const emptyStateProps = useMemo(() => {
+    if (siteFilter) {
+      const siteTanks = (tanks || []).filter((t) => String(t.siteId) === String(siteFilter));
+      if (siteTanks.length === 0) {
+        return {
+          title: 'No Tanks Available',
+          description: 'No tanks available for this site.',
+          actionLabel: 'Reset Filters',
+          onAction: handleResetFilters,
+        };
+      }
+      return {
+        title: 'No Feed Records Found',
+        description: 'No feed records found.',
+        actionLabel: 'Reset Filters',
+        onAction: handleResetFilters,
+      };
+    }
+
+    if (tankFilter || dateFilter) {
+      return {
+        title: 'No Feed Records Found',
+        description: 'No feed records match your filter criteria. Try resetting filters.',
+        actionLabel: 'Reset Filters',
+        onAction: handleResetFilters,
+      };
+    }
+
+    return {
+      title: 'No Feed Records Found',
+      description: 'No feed distribution logs have been recorded yet.',
+      actionLabel: 'Record Feed',
+      onAction: handleOpenAdd,
+    };
+  }, [siteFilter, tankFilter, dateFilter, tanks]);
 
   const handleSaveFeed = async (formData) => {
     setIsSubmitting(true);
@@ -140,14 +206,9 @@ export default function FeedManagement() {
     }
   };
 
-  const handleResetFilters = () => {
-    setTankFilter('');
-    setDateFilter('');
-  };
-
   return (
     <div className="space-y-6">
-      {/* 1. PAGE HEADER (Records badge removed as requested) */}
+      {/* 1. PAGE HEADER */}
       <PageHeader
         title="Feed Management"
         subtitle="Monitor daily feed distribution, ration logs, and total feed expenditure."
@@ -164,7 +225,7 @@ export default function FeedManagement() {
         }
       />
 
-      {/* 2. TOP DASHBOARD SUMMARY CARDS (Today's Feed, Total Feed Used, Total Feed Cost) */}
+      {/* 2. TOP DASHBOARD SUMMARY CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <Card padding="compact" className="border-border/80">
           <div className="flex items-center gap-3">
@@ -203,8 +264,10 @@ export default function FeedManagement() {
         </Card>
       </div>
 
-      {/* 3. FILTERS AREA (All Tanks & Date Picker) */}
+      {/* 3. FILTERS AREA (All Sites, All Tanks & Date Picker) */}
       <FeedFilters
+        siteFilter={siteFilter}
+        onSiteChange={handleSiteChange}
         tankFilter={tankFilter}
         onTankChange={setTankFilter}
         dateFilter={dateFilter}
@@ -228,18 +291,10 @@ export default function FeedManagement() {
       ) : (
         <Card padding="relaxed" className="border-border/80 shadow-2xs">
           <EmptyState
-            title="No Feed Records Found"
-            description={
-              tankFilter || dateFilter
-                ? "No feed distribution logs match your current filter criteria. Try resetting filters."
-                : "No feed distribution logs recorded yet."
-            }
-            actionLabel={
-              tankFilter || dateFilter ? "Reset Filters" : "Record Feed"
-            }
-            onAction={
-              tankFilter || dateFilter ? handleResetFilters : handleOpenAdd
-            }
+            title={emptyStateProps.title}
+            description={emptyStateProps.description}
+            actionLabel={emptyStateProps.actionLabel}
+            onAction={emptyStateProps.onAction}
           />
         </Card>
       )}
