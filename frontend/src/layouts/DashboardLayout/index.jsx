@@ -39,6 +39,7 @@ export const DashboardLayout = () => {
       '/farm-setup': 'Farm Setup',
       '/tanks': 'Tanks',
       '/crops': 'Crop Management',
+      '/netting': 'Netting Management',
       '/feed': 'Feed Management',
       '/medicines': 'Medicines',
       '/expenses': 'Expenses',

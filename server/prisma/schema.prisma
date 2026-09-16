@@ -51,8 +51,9 @@ model Farm {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  sites     Site[]
-  stockings Stocking[]
+  sites       Site[]
+  stockings   Stocking[]
+  otherStocks OtherStock[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -77,6 +78,7 @@ model Site {
   tanks            Tank[]
   stockings        Stocking[]
   stockAllocations SiteStockAllocation[]
+  nettings         Netting[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -140,6 +142,7 @@ model Tank {
   crops      Crop[]
   medicines  Medicine[]
   pondLeases PondLease[]
+  nettings   Netting[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -177,6 +180,7 @@ model Crop {
   feedEntries FeedEntry[]
   expenses    Expense[]
   harvests    Harvest[]
+  nettings    Netting[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -310,6 +314,37 @@ model PondLease {
 
   tankId String
   tank   Tank   @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OtherStock {
+  id        String   @id @default(cuid())
+  category  String
+  count     Int
+  notes     String?
+  farmId    String
+  farm      Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Netting {
+  id            String   @id @default(cuid())
+  shrimpCount   Int
+  weightGrams   Float
+  nettingNumber Int
+  nettingDate   DateTime
+
+  cropId String
+  crop   Crop   @relation(fields: [cropId], references: [id], onDelete: Cascade)
+
+  tankId String
+  tank   Tank   @relation(fields: [tankId], references: [id], onDelete: Cascade)
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

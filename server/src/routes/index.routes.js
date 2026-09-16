@@ -15,6 +15,8 @@ import siteRoutes from "./site.routes.js";
 import stockingRoutes from "./stocking.routes.js";
 import pondLeaseRoutes from "./pondLease.routes.js";
 import forgotPasswordRoutes from "../forgot-password/forgotPassword.routes.js";
+import otherStockRoutes from "./otherStock.routes.js";
+import nettingRoutes from "./netting.routes.js";
 const router = Router();
 
 router.get("/health", healthCheck);
@@ -45,4 +47,9 @@ router.use("/sites", siteRoutes);
 router.use("/stocking", stockingRoutes);
 
 router.use("/pond-leases", pondLeaseRoutes);
+
+router.use("/other-stock", otherStockRoutes);
+
+router.use("/netting", nettingRoutes);
+
 export default router;
