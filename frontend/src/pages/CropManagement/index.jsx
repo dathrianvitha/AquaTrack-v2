@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -16,6 +17,7 @@ import { CropDetailsModal } from '../../components/CropDetailsModal';
 import { useCrops } from '../../context/CropContext';
 
 export default function CropManagement() {
+  const navigate = useNavigate();
   const {
     crops = [],
     addCrop,
@@ -133,15 +135,26 @@ export default function CropManagement() {
         title="Crop Management"
         subtitle="Track and manage crop batches across your farm tanks."
         actions={
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleOpenAdd}
-            icon={<Plus className="w-4 h-4" />}
-            className="font-semibold shadow-xs"
-          >
-            Register New Crop
-          </Button>
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigate('/netting')}
+              icon={<Plus className="w-4 h-4" />}
+              className="font-semibold shadow-xs"
+            >
+              Netting
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenAdd}
+              icon={<Plus className="w-4 h-4" />}
+              className="font-semibold shadow-xs"
+            >
+              Register New Crop
+            </Button>
+          </div>
         }
       />
 

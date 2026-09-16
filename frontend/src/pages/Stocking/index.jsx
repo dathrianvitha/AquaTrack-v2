@@ -9,7 +9,8 @@ import {
   Pencil,
   Trash2,
   Calendar,
-  Eye
+  Eye,
+  Wrench
 } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -23,6 +24,7 @@ import { Input } from '../../components/Input';
 import { ConfirmationDialog } from '../../components/ConfirmationDialog';
 import { PasswordConfirmationModal } from '../../components/PasswordConfirmationModal';
 import { AddStockForm } from '../../components/AddStockModal';
+import { OtherStockModal } from '../../components/OtherStockModal';
 
 import { useStocking } from '../../context/StockingContext';
 import { useSites } from '../../context/SiteContext';
@@ -30,6 +32,7 @@ import { useTanks } from '../../context/TankContext';
 import { useFeed } from '../../context/FeedContext';
 import { useMedicine } from '../../context/MedicineContext';
 import { subscribeToSyncBus } from '../../utils/syncBus';
+import { otherStockService } from '../../services/otherStockService';
 
 export default function Stocking() {
   const {
@@ -75,6 +78,59 @@ export default function Stocking() {
   const [deletingStockId, setDeletingStockId] = useState(null);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [viewingStock, setViewingStock] = useState(null);
+
+  // Other Stock States
+  const [otherStocks, setOtherStocks] = useState([]);
+  const [loadingOtherStock, setLoadingOtherStock] = useState(false);
+  const [isOtherStockModalOpen, setIsOtherStockModalOpen] = useState(false);
+  const [editingOtherStock, setEditingOtherStock] = useState(null);
+  const [deletingOtherStockId, setDeletingOtherStockId] = useState(null);
+  const [isOtherStockPasswordOpen, setIsOtherStockPasswordOpen] = useState(false);
+  const [isOtherStockSubmitting, setIsOtherStockSubmitting] = useState(false);
+
+  // Fetch Other Stock records
+  const fetchOtherStocks = async () => {
+    setLoadingOtherStock(true);
+    try {
+      const res = await otherStockService.getOtherStocks();
+      if (res?.success && Array.isArray(res.data)) {
+        setOtherStocks(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch other stock records', err);
+    } finally {
+      setLoadingOtherStock(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOtherStocks();
+  }, []);
+
+  const handleSaveOtherStock = async (formData) => {
+    setIsOtherStockSubmitting(true);
+    try {
+      if (editingOtherStock) {
+        await otherStockService.updateOtherStock(editingOtherStock.id, formData);
+      } else {
+        await otherStockService.createOtherStock(formData);
+      }
+      setIsOtherStockModalOpen(false);
+      setEditingOtherStock(null);
+      await fetchOtherStocks();
+    } finally {
+      setIsOtherStockSubmitting(false);
+    }
+  };
+
+  const handleConfirmDeleteOtherStockWithPassword = async (password) => {
+    if (deletingOtherStockId) {
+      await otherStockService.deleteOtherStock(deletingOtherStockId, password);
+      setIsOtherStockPasswordOpen(false);
+      setDeletingOtherStockId(null);
+      await fetchOtherStocks();
+    }
+  };
 
   // Map Tank ID to Site ID for fast live usage resolution
   const tankSiteMap = useMemo(() => {
@@ -255,16 +311,30 @@ export default function Stocking() {
         title="Stocking Management"
         subtitle="Manage site-level stock inventory directly for feed and medicine."
         actions={
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setIsAddStockOpen(true)}
-            icon={<Plus className="w-4 h-4" />}
-            className="font-semibold shadow-xs"
-            disabled={sites.length === 0}
-          >
-            Add Stock
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsAddStockOpen(true)}
+              icon={<Plus className="w-4 h-4" />}
+              className="font-semibold shadow-xs"
+              disabled={sites.length === 0}
+            >
+              Add Stock
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingOtherStock(null);
+                setIsOtherStockModalOpen(true);
+              }}
+              icon={<Plus className="w-4 h-4" />}
+              className="font-semibold shadow-xs"
+            >
+              Other Stock
+            </Button>
+          </div>
         }
       />
 
@@ -482,6 +552,71 @@ export default function Stocking() {
         </div>
       )}
 
+      {/* 2.5 OTHER STOCK SECTION */}
+      <div className="space-y-4 pt-4 border-t border-border/60">
+        <div className="flex items-center justify-between border-b border-border/60 pb-2">
+          <div>
+            <h3 className="font-bold text-base text-text-primary flex items-center gap-2">
+              <Wrench className="w-4.5 h-4.5 text-primary" /> Other Stock
+            </h3>
+            <span className="text-xs text-text-secondary">Farm-level equipment and spare parts inventory</span>
+          </div>
+        </div>
+
+        {otherStocks.length === 0 ? (
+          <Card padding="relaxed" className="border-border/80 text-center py-6">
+            <div className="text-xs text-text-secondary">
+              No farm-level equipment or parts added yet. Click <span className="font-semibold text-text-primary">[ + Other Stock ]</span> to add items.
+            </div>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {otherStocks.map((item) => (
+              <Card key={item.id} padding="normal" className="border-border/80 bg-surface shadow-xs flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-sm text-text-primary">{item.category}</h4>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingOtherStock(item);
+                          setIsOtherStockModalOpen(true);
+                        }}
+                        title="Edit Other Stock"
+                        className="p-1 text-text-secondary hover:text-primary rounded hover:bg-primary-light transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeletingOtherStockId(item.id);
+                          setIsOtherStockPasswordOpen(true);
+                        }}
+                        title="Delete Other Stock"
+                        className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-background border border-border/50 text-center">
+                    <span className="text-[10px] uppercase font-bold text-text-secondary block">Count</span>
+                    <span className="text-lg font-extrabold text-primary mt-0.5 block">{item.count}</span>
+                  </div>
+                  {item.notes && (
+                    <div className="px-2.5 py-1.5 rounded-lg bg-background/80 border border-border/40 text-xs text-text-secondary">
+                      <span className="font-semibold text-text-primary">Notes:</span> {item.notes}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* 3. ADD STOCK MODAL */}
       <Modal
         isOpen={isAddStockOpen}
@@ -633,6 +768,30 @@ export default function Stocking() {
           setDeletingStockId(null);
         }}
         onConfirm={handleFinalDeleteWithPassword}
+      />
+
+      {/* 7. OTHER STOCK MODAL */}
+      <OtherStockModal
+        isOpen={isOtherStockModalOpen}
+        onClose={() => {
+          setIsOtherStockModalOpen(false);
+          setEditingOtherStock(null);
+        }}
+        onSubmit={handleSaveOtherStock}
+        initialData={editingOtherStock}
+        isSubmitting={isOtherStockSubmitting}
+      />
+
+      {/* 8. OTHER STOCK DELETE PASSWORD CONFIRMATION MODAL */}
+      <PasswordConfirmationModal
+        isOpen={isOtherStockPasswordOpen}
+        onClose={() => {
+          setIsOtherStockPasswordOpen(false);
+          setDeletingOtherStockId(null);
+        }}
+        onConfirm={handleConfirmDeleteOtherStockWithPassword}
+        title="Delete Other Stock"
+        message="Enter your password to confirm deletion of this farm-level stock record."
       />
     </div>
   );

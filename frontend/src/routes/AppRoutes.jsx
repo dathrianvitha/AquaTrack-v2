@@ -17,6 +17,7 @@ import Expenses from '../pages/Expenses';
 import PondLeaseManagement from '../pages/PondLeaseManagement';
 import Harvest from '../pages/Harvest';
 import Reports from '../pages/Reports';
+import NettingManagement from '../pages/NettingManagement';
 import NotFound from '../pages/NotFound';
 
 import DashboardLayout from '../layouts/DashboardLayout';
@@ -39,6 +40,7 @@ const AppRoutes = () => {
           <Route path="/sites" element={<Sites />} />
           <Route path="/tanks" element={<Tanks />} />
           <Route path="/crops" element={<CropManagement />} />
+          <Route path="/netting" element={<NettingManagement />} />
           <Route path="/stocking" element={<Stocking />} />
           <Route path="/feed" element={<FeedManagement />} />
           <Route path="/medicines" element={<Medicines />} />
