@@ -15,6 +15,7 @@ import { CropForm } from '../../components/CropForm';
 import { CropFilters } from '../../components/CropFilters';
 import { CropDetailsModal } from '../../components/CropDetailsModal';
 import { useCrops } from '../../context/CropContext';
+import { useTanks } from '../../context/TankContext';
 
 export default function CropManagement() {
   const navigate = useNavigate();
@@ -25,9 +26,11 @@ export default function CropManagement() {
     deleteCrop,
     loading
   } = useCrops();
+  const { tanks = [] } = useTanks();
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
   const [tankFilter, setTankFilter] = useState('');
 
   // Modal Control States
@@ -42,33 +45,71 @@ export default function CropManagement() {
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [deletingCrop, setDeletingCrop] = useState(null);
 
-  // Filter Crops List Safely
+  // Handle Site Filter Change (Resets Tank Filter per Requirements 13 & 14)
+  const handleSiteChange = (newSiteId) => {
+    setSiteFilter(newSiteId);
+    setTankFilter('');
+  };
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setSiteFilter('');
+    setTankFilter('');
+  };
+
+  // Build relational set of tank IDs belonging to the selected site
+  const siteTankIds = useMemo(() => {
+    if (!siteFilter) return null;
+    const siteTanks = (tanks || []).filter((t) => String(t.siteId) === String(siteFilter));
+    return new Set(siteTanks.map((t) => String(t.id)));
+  }, [tanks, siteFilter]);
+
+  // Filter Crops List Safely using IDs/relationships
   const filteredCrops = useMemo(() => {
     const list = crops || [];
     const query = (searchQuery || '').trim().toLowerCase();
 
     return list.filter((crop) => {
       if (!crop) return false;
-      const batchStr = crop.batchNumber || '';
-      const nameStr = crop.cropName || '';
-      const varietyStr = crop.seedVariety || '';
-      const rawTank = crop.tankName || crop.tank?.tankName || crop.tank?.name || '';
-      const tankStr = rawTank.replace(/\s*\([^)]*\)/g, '').trim();
-      const notesStr = crop.notes || '';
 
-      const matchesSearch =
-        query === '' ||
-        batchStr.toLowerCase().includes(query) ||
-        nameStr.toLowerCase().includes(query) ||
-        varietyStr.toLowerCase().includes(query) ||
-        tankStr.toLowerCase().includes(query) ||
-        notesStr.toLowerCase().includes(query);
+      // 1. Relational Site Filter
+      if (siteFilter) {
+        const cropTankId = String(crop.tankId || crop.tank?.id || '');
+        const cropSiteId = String(crop.siteId || crop.tank?.siteId || crop.tank?.site?.id || '');
+        const matchesSite = (siteTankIds && siteTankIds.has(cropTankId)) || cropSiteId === String(siteFilter);
+        if (!matchesSite) return false;
+      }
 
-      const matchesTank = tankFilter === '' || crop.tankId === tankFilter;
+      // 2. Relational Tank Filter
+      if (tankFilter) {
+        const cropTankId = String(crop.tankId || crop.tank?.id || '');
+        if (cropTankId !== String(tankFilter)) return false;
+      }
 
-      return matchesSearch && matchesTank;
+      // 3. Search Query Filter
+      if (query) {
+        const batchStr = crop.batchNumber || '';
+        const nameStr = crop.cropName || '';
+        const varietyStr = crop.seedVariety || '';
+        const rawTank = crop.tankName || crop.tank?.tankName || crop.tank?.name || '';
+        const tankStr = rawTank.replace(/\s*\([^)]*\)/g, '').trim();
+        const siteStr = crop.siteName || crop.site?.siteName || crop.tank?.site?.siteName || '';
+        const notesStr = crop.notes || '';
+
+        const matchesSearch =
+          batchStr.toLowerCase().includes(query) ||
+          nameStr.toLowerCase().includes(query) ||
+          varietyStr.toLowerCase().includes(query) ||
+          tankStr.toLowerCase().includes(query) ||
+          siteStr.toLowerCase().includes(query) ||
+          notesStr.toLowerCase().includes(query);
+
+        if (!matchesSearch) return false;
+      }
+
+      return true;
     });
-  }, [crops, searchQuery, tankFilter]);
+  }, [crops, searchQuery, siteFilter, tankFilter, siteTankIds]);
 
   // Form Handlers
   const handleOpenAdd = () => {
@@ -92,6 +133,60 @@ export default function CropManagement() {
     setIsDeleteOpen(true);
     if (isDetailsOpen) setIsDetailsOpen(false);
   };
+
+  // Dynamic Empty State Props based on Requirement 15
+  const emptyStateProps = useMemo(() => {
+    if (siteFilter) {
+      const siteTanks = (tanks || []).filter((t) => String(t.siteId) === String(siteFilter));
+      if (siteTanks.length === 0) {
+        return {
+          title: 'No Tanks Available',
+          description: 'No tanks available for this site.',
+          actionLabel: 'Reset Filters',
+          onAction: handleResetFilters,
+        };
+      }
+      if (tankFilter) {
+        return {
+          title: 'No Crops Registered',
+          description: 'No crops registered for this tank yet.',
+          actionLabel: 'Reset Filters',
+          onAction: handleResetFilters,
+        };
+      }
+      return {
+        title: 'No Crops Registered',
+        description: 'No crops registered for this site yet.',
+        actionLabel: 'Reset Filters',
+        onAction: handleResetFilters,
+      };
+    }
+
+    if (tankFilter) {
+      return {
+        title: 'No Crops Registered',
+        description: 'No crops registered for this tank yet.',
+        actionLabel: 'Reset Filters',
+        onAction: handleResetFilters,
+      };
+    }
+
+    if (searchQuery) {
+      return {
+        title: 'No Crop Batches Found',
+        description: 'No crop batches match your filter criteria. Try resetting filters.',
+        actionLabel: 'Reset Filters',
+        onAction: handleResetFilters,
+      };
+    }
+
+    return {
+      title: 'No Crop Batches Found',
+      description: 'No crop batches have been registered yet.',
+      actionLabel: 'Register New Crop',
+      onAction: handleOpenAdd,
+    };
+  }, [siteFilter, tankFilter, searchQuery, tanks]);
 
   const handleSaveCrop = async (formData) => {
     setIsSubmitting(true);
@@ -121,11 +216,6 @@ export default function CropManagement() {
       setIsPasswordOpen(false);
       setDeletingCrop(null);
     }
-  };
-
-  const handleResetFilters = () => {
-    setSearchQuery('');
-    setTankFilter('');
   };
 
   return (
@@ -158,10 +248,12 @@ export default function CropManagement() {
         }
       />
 
-      {/* 2. SEARCH & FILTERS (No summary cards, direct transition) */}
+      {/* 2. SEARCH & FILTERS */}
       <CropFilters
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        siteFilter={siteFilter}
+        onSiteChange={handleSiteChange}
         tankFilter={tankFilter}
         onTankChange={setTankFilter}
         onReset={handleResetFilters}
@@ -183,18 +275,10 @@ export default function CropManagement() {
       ) : (
         <Card padding="relaxed" className="border-border/80 shadow-2xs">
           <EmptyState
-            title="No Crop Batches Found"
-            description={
-              searchQuery || tankFilter
-                ? "No crop batches match your filter criteria. Try resetting filters."
-                : "No crop batches have been registered yet."
-            }
-            actionLabel={
-              searchQuery || tankFilter ? "Reset Filters" : "Register New Crop"
-            }
-            onAction={
-              searchQuery || tankFilter ? handleResetFilters : handleOpenAdd
-            }
+            title={emptyStateProps.title}
+            description={emptyStateProps.description}
+            actionLabel={emptyStateProps.actionLabel}
+            onAction={emptyStateProps.onAction}
           />
         </Card>
       )}

@@ -41,7 +41,12 @@ export const CropProvider = ({ children }) => {
       if (Array.isArray(tankList)) {
         tankList.forEach((t) => {
           if (t && t.id) {
-            tanksMap.set(String(t.id), t.tankName || t.name || 'Tank');
+            tanksMap.set(String(t.id), {
+              tankName: t.tankName || t.name || 'Tank',
+              siteId: String(t.siteId || t.site?.id || ''),
+              siteName: t.site?.siteName || t.siteName || '',
+              raw: t,
+            });
           }
         });
       }
@@ -56,23 +61,39 @@ export const CropProvider = ({ children }) => {
 
       const normalized = cropList.map((c) => {
         const cropTankId = c.tankId || c.tank?.id;
-        const matchingTankName = cropTankId ? tanksMap.get(String(cropTankId)) : null;
-        const resolvedTankName = matchingTankName
+        const matchingTank = cropTankId ? tanksMap.get(String(cropTankId)) : null;
+        const resolvedTankName = matchingTank?.tankName
           || c.tank?.tankName
           || c.tank?.name
           || c.tankName
           || (cropTankId ? 'Tank' : 'No Tank Assigned');
+
+        const resolvedSiteId = String(
+          matchingTank?.siteId ||
+          c.tank?.siteId ||
+          c.tank?.site?.id ||
+          ''
+        );
+
+        const resolvedSiteName =
+          matchingTank?.siteName ||
+          c.tank?.site?.siteName ||
+          c.tank?.siteName ||
+          '';
 
         const derivedStatus = c.status || 'ACTIVE';
 
         return {
           ...c,
           id: String(c.id),
+          tankId: cropTankId ? String(cropTankId) : (c.tankId ? String(c.tankId) : null),
           cropName: c.cropName || c.batchNumber || (c.seedVariety ? `${c.seedVariety} (${c.batchNumber || 'Batch'})` : 'Crop Batch'),
           batchNumber: c.batchNumber || c.cropName || '',
           expectedProductionKg: c.expectedProductionKg ?? c.expectedProduction,
           expectedSellingPricePerKg: c.expectedSellingPricePerKg ?? c.expectedSellingPrice,
           tankName: resolvedTankName,
+          siteId: resolvedSiteId,
+          siteName: resolvedSiteName,
           status: derivedStatus === 'ACTIVE' ? 'Active' : 'Completed',
           rawStatus: derivedStatus,
         };

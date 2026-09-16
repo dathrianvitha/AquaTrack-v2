@@ -32,10 +32,16 @@ export const CropCard = ({
   const displayName = batchNumber ? `Batch ${batchNumber}` : cropName || 'Crop Batch';
   const displayVariety = seedVariety || 'Not specified';
 
-  // Format tank name cleanly: e.g. "A1" or "No Tank Assigned" without fallback to generic "Tank" or "A1"
+  // Format tank name and site name cleanly: e.g. "K1 — Site 1"
   const rawTank = tankName || crop?.tank?.tankName || crop?.tank?.name || (crop?.tankId ? 'Tank' : 'No Tank Assigned');
   const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
-  const tankLabel = cleanTank;
+
+  const rawSite = crop?.siteName || crop?.site?.siteName || crop?.tank?.site?.siteName || crop?.tank?.siteName || '';
+  const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+
+  const tankLabel = cleanSite && !cleanTank.toLowerCase().includes(cleanSite.toLowerCase())
+    ? `${cleanTank} — ${cleanSite}`
+    : cleanTank;
 
   const validStockingDate = stockingDate ? new Date(stockingDate) : null;
   const formattedStockingDate = validStockingDate && !isNaN(validStockingDate.getTime())
