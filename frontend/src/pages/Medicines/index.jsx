@@ -18,6 +18,7 @@ import { MedicineForm } from '../../components/MedicineForm';
 import { MedicineFilters } from '../../components/MedicineFilters';
 import { MedicineDetailsModal } from '../../components/MedicineDetailsModal';
 import { useMedicine } from '../../context/MedicineContext';
+import { useTanks } from '../../context/TankContext';
 
 export default function Medicines() {
   const {
@@ -29,8 +30,10 @@ export default function Medicines() {
     loading,
     error
   } = useMedicine();
+  const { tanks = [] } = useTanks();
 
-  // Filter State (Tank & Date filters retained)
+  // Filter State (Site, Tank, & Date filters)
+  const [siteFilter, setSiteFilter] = useState('');
   const [tankFilter, setTankFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
 
@@ -52,22 +55,54 @@ export default function Medicines() {
     totalMedicineCostRupees: analytics?.totalMedicineCostRupees || (medicineRecords || []).reduce((acc, r) => acc + (parseFloat(r.cost) || 0), 0),
   };
 
-  // Filter Medicine Records
+  // Handle Site Change (Resets Tank Filter per Requirement 9)
+  const handleSiteChange = (newSiteId) => {
+    setSiteFilter(newSiteId);
+    setTankFilter('');
+  };
+
+  const handleResetFilters = () => {
+    setSiteFilter('');
+    setTankFilter('');
+    setDateFilter('');
+  };
+
+  // Relational site tank IDs mapping
+  const siteTankIds = useMemo(() => {
+    if (!siteFilter) return null;
+    const siteTanks = (tanks || []).filter((t) => String(t.siteId) === String(siteFilter));
+    return new Set(siteTanks.map((t) => String(t.id)));
+  }, [tanks, siteFilter]);
+
+  // Filter Medicine Records using IDs/relationships
   const filteredRecords = useMemo(() => {
     const list = medicineRecords || [];
     return list.filter((record) => {
       if (!record) return false;
-      const matchesTank = tankFilter === '' || record.tankId === tankFilter;
 
-      let matchesDate = true;
-      if (dateFilter) {
-        const recordDateStr = record.date ? new Date(record.date).toISOString().split('T')[0] : '';
-        matchesDate = recordDateStr === dateFilter;
+      // 1. Relational Site Filter
+      if (siteFilter) {
+        const recTankId = String(record.tankId || record.tank?.id || '');
+        const recSiteId = String(record.siteId || record.tank?.siteId || record.tank?.site?.id || '');
+        const matchesSite = (siteTankIds && siteTankIds.has(recTankId)) || recSiteId === String(siteFilter);
+        if (!matchesSite) return false;
       }
 
-      return matchesTank && matchesDate;
+      // 2. Relational Tank Filter
+      if (tankFilter && tankFilter !== '') {
+        const recTankId = String(record.tankId || record.tank?.id || '');
+        if (recTankId !== String(tankFilter)) return false;
+      }
+
+      // 3. Date Filter
+      if (dateFilter) {
+        const recordDateStr = record.date ? new Date(record.date).toISOString().split('T')[0] : (record.applicationDate || '');
+        if (recordDateStr !== dateFilter) return false;
+      }
+
+      return true;
     });
-  }, [medicineRecords, tankFilter, dateFilter]);
+  }, [medicineRecords, siteFilter, tankFilter, dateFilter, siteTankIds]);
 
   // Form Handlers
   const handleOpenAdd = () => {
@@ -93,6 +128,43 @@ export default function Medicines() {
     setIsDeleteOpen(true);
     if (isDetailsOpen) setIsDetailsOpen(false);
   };
+
+  // Dynamic Empty State Props according to Requirement 15
+  const emptyStateProps = useMemo(() => {
+    if (siteFilter) {
+      const siteTanks = (tanks || []).filter((t) => String(t.siteId) === String(siteFilter));
+      if (siteTanks.length === 0) {
+        return {
+          title: 'No Tanks Available',
+          description: 'No tanks available for this site.',
+          actionLabel: 'Reset Filters',
+          onAction: handleResetFilters,
+        };
+      }
+      return {
+        title: 'No Medicine Records Found',
+        description: 'No medicine records found.',
+        actionLabel: 'Reset Filters',
+        onAction: handleResetFilters,
+      };
+    }
+
+    if (tankFilter || dateFilter) {
+      return {
+        title: 'No Medicine Records Found',
+        description: 'No medicine records match your filter criteria. Try resetting filters.',
+        actionLabel: 'Reset Filters',
+        onAction: handleResetFilters,
+      };
+    }
+
+    return {
+      title: 'No Treatment Records Found',
+      description: 'No treatment records registered yet.',
+      actionLabel: 'Add Treatment Record',
+      onAction: handleOpenAdd,
+    };
+  }, [siteFilter, tankFilter, dateFilter, tanks]);
 
   const handleSaveRecord = async (formData) => {
     setIsSubmitting(true);
@@ -131,11 +203,6 @@ export default function Medicines() {
     }
   };
 
-  const handleResetFilters = () => {
-    setTankFilter('');
-    setDateFilter('');
-  };
-
   return (
     <div className="space-y-6">
       {/* 1. PAGE HEADER */}
@@ -155,7 +222,7 @@ export default function Medicines() {
         }
       />
 
-      {/* 2. TOP SUMMARY CARDS (Total Treatments, Total Cost) */}
+      {/* 2. TOP SUMMARY CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <Card padding="compact" className="border-border/80">
           <div className="flex items-center gap-3">
@@ -182,8 +249,10 @@ export default function Medicines() {
         </Card>
       </div>
 
-      {/* 3. FILTERS AREA (All Tanks & Date Picker) */}
+      {/* 3. FILTERS AREA (All Sites, All Tanks & Date Picker) */}
       <MedicineFilters
+        siteFilter={siteFilter}
+        onSiteChange={handleSiteChange}
         tankFilter={tankFilter}
         onTankChange={setTankFilter}
         dateFilter={dateFilter}
@@ -207,18 +276,10 @@ export default function Medicines() {
       ) : (
         <Card padding="relaxed" className="border-border/80 shadow-2xs">
           <EmptyState
-            title="No Treatment Records Found"
-            description={
-              tankFilter || dateFilter
-                ? "No treatment records match your current filter criteria. Try resetting filters."
-                : "No treatment records registered yet."
-            }
-            actionLabel={
-              tankFilter || dateFilter ? "Reset Filters" : "Add Treatment Record"
-            }
-            onAction={
-              tankFilter || dateFilter ? handleResetFilters : handleOpenAdd
-            }
+            title={emptyStateProps.title}
+            description={emptyStateProps.description}
+            actionLabel={emptyStateProps.actionLabel}
+            onAction={emptyStateProps.onAction}
           />
         </Card>
       )}

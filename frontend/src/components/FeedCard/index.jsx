@@ -37,10 +37,16 @@ export const FeedCard = ({
   const displayBrand = feedBrand || 'Not specified';
   const displayType = feedType || 'Feed';
 
-  // Clean tank name: e.g. "Tank A1" without "Tank: A1" prefix or water source string
+  // Clean tank name & site name: e.g. "Tank K1 — Juvvalapalem"
   const rawTank = tankName || feedLog?.tank?.name || feedLog?.tank?.tankName || 'A1';
   const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
-  const tankLabel = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+  const rawSite = feedLog?.siteName || feedLog?.site?.siteName || feedLog?.crop?.tank?.site?.siteName || feedLog?.crop?.tank?.siteName || feedLog?.tank?.site?.siteName || feedLog?.tank?.siteName || '';
+  const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+
+  const formattedTank = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+  const tankLabel = cleanSite && !formattedTank.toLowerCase().includes(cleanSite.toLowerCase())
+    ? `${formattedTank} — ${cleanSite}`
+    : formattedTank;
 
   const numericQty = parseFloat(quantity ?? quantityKg) || 0;
   const numericCostPerKg = parseFloat(costPerKg ?? pricePerKg ?? (feedCost && numericQty ? feedCost / numericQty : 0)) || 0;

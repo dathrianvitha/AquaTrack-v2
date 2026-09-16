@@ -19,8 +19,19 @@ export const ExpenseDetailsModal = ({
   if (!expense) return null;
 
   const displayCategory = expense.category || expense.description || 'Expense Details';
-  const rawTank = expense.tankName || expense.tank?.name || expense.tank?.tankName || 'Not assigned';
-  const displayTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
+  const rawTank = expense.tankName || expense.tank?.name || expense.tank?.tankName || '';
+  const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim();
+  const siteName = expense.siteName || expense.tank?.site?.siteName || expense.tank?.site?.name || expense.crop?.tank?.site?.siteName || '';
+
+  let displayTank = '';
+  if (cleanTank && cleanTank !== 'Not assigned') {
+    const formattedTank = cleanTank.toLowerCase().startsWith('tank') ? cleanTank : `Tank ${cleanTank}`;
+    displayTank = siteName ? `${formattedTank} — ${siteName}` : formattedTank;
+  } else if (siteName) {
+    displayTank = siteName;
+  } else {
+    displayTank = 'Not assigned';
+  }
 
   const numericAmount = parseFloat(expense.amount) || 0;
   const formattedDate = expense.date

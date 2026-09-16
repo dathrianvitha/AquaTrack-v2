@@ -3,28 +3,52 @@ import { RotateCcw } from 'lucide-react';
 import { Select } from '../Select';
 import { Button } from '../Button';
 import { EXPENSE_CATEGORY_OPTIONS } from '../../constants/expenseData';
+import { useSites } from '../../context/SiteContext';
 import { useTanks } from '../../context/TankContext';
 
 /**
- * Reusable ExpenseFilters component for filtering expenses by category and tank.
- * Search bar has been removed as requested.
+ * Reusable ExpenseFilters component for filtering expenses by category, site, and tank.
  */
 export const ExpenseFilters = ({
-  categoryFilter,
+  categoryFilter = '',
   onCategoryChange,
-  tankFilter,
+  siteFilter = '',
+  onSiteChange,
+  tankFilter = '',
   onTankChange,
   onReset,
   className = '',
 }) => {
+  const { sites = [] } = useSites();
   const { tanks = [] } = useTanks();
 
+  // 1. Build Site Options
+  const siteOptions = [
+    { value: '', label: 'All Sites' },
+    ...(sites || []).map((s) => ({
+      value: String(s.id),
+      label: s.siteName || s.name || 'Site',
+    })),
+  ];
+
+  // 2. Filter Tanks based on selected site & Build Tank Options
+  const filteredTanks = siteFilter
+    ? (tanks || []).filter((t) => String(t.siteId) === String(siteFilter))
+    : tanks || [];
+
   const tankOptions = [
-    { value: '', label: 'Select Tank' },
-    ...(tanks || []).map((t) => {
+    { value: '', label: 'All Tanks' },
+    ...filteredTanks.map((t) => {
       const rawName = t.name || t.tankName || 'Tank';
-      const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
-      return { value: t.id, label: cleanName };
+      const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
+      const siteName = t.siteName || t.site?.siteName || '';
+
+      // When All Sites is selected, show tank with its site name e.g. "K1 — Site 1"
+      const label = (!siteFilter && siteName)
+        ? `${cleanName} — ${siteName}`
+        : cleanName;
+
+      return { value: String(t.id), label };
     }),
   ];
 
@@ -33,26 +57,39 @@ export const ExpenseFilters = ({
     ...EXPENSE_CATEGORY_OPTIONS,
   ];
 
-  const hasActiveFilters = Boolean(categoryFilter || tankFilter);
+  const hasActiveFilters = Boolean(categoryFilter || siteFilter || tankFilter);
 
   return (
     <div className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface border border-border rounded-xl p-4 shadow-xs ${className}`}>
-      {/* Category and Tank Dropdowns */}
+      {/* Category, Site, and Tank Dropdowns */}
       <div className="flex flex-wrap items-center gap-3 flex-1">
-        <div className="w-48 sm:w-56">
+        {/* Category Select */}
+        <div className="w-44 sm:w-52">
           <Select
             value={categoryFilter}
-            onChange={(e) => onCategoryChange(e.target.value)}
+            onChange={(e) => onCategoryChange && onCategoryChange(e.target.value)}
             options={categoryOptions}
             placeholder=""
             fullWidth
           />
         </div>
 
-        <div className="w-48 sm:w-56">
+        {/* Site Select */}
+        <div className="w-40 sm:w-48">
+          <Select
+            value={siteFilter}
+            onChange={(e) => onSiteChange && onSiteChange(e.target.value)}
+            options={siteOptions}
+            placeholder=""
+            fullWidth
+          />
+        </div>
+
+        {/* Tank Select */}
+        <div className="w-44 sm:w-52">
           <Select
             value={tankFilter}
-            onChange={(e) => onTankChange(e.target.value)}
+            onChange={(e) => onTankChange && onTankChange(e.target.value)}
             options={tankOptions}
             placeholder=""
             fullWidth
@@ -64,8 +101,9 @@ export const ExpenseFilters = ({
             variant="ghost"
             size="sm"
             onClick={onReset}
-            icon={<RotateCcw className="w-3.5 h-3.5" />}
-            className="text-xs text-text-secondary hover:text-primary shrink-0"
+            icon={<RotateCcw className="w-3.5 h-3.5 text-danger" />}
+            className="text-xs text-danger font-medium hover:bg-danger-light/50 shrink-0"
+            title="Reset Filters"
           >
             Reset Filters
           </Button>

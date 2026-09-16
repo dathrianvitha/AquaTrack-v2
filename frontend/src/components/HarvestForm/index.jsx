@@ -65,14 +65,15 @@ export const HarvestForm = ({
   const isEditing = Boolean(initialData?.id);
   const [formError, setFormError] = useState('');
 
-  // Clean tank labels without water source string
+  // Clean tank labels without water source string or acreage
   const tankSelectOptions = tanks.map((tank) => {
     const rawName = tank.name || tank.tankName || 'Tank';
     const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
-    const areaSuffix = tank.area ? ` (${tank.area} Acres)` : '';
+    const siteName = tank.site?.siteName || tank.site?.name || tank.siteName || '';
+    const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
     return {
       value: String(tank.id),
-      label: `${cleanName}${areaSuffix}`,
+      label,
     };
   });
 
@@ -134,6 +135,7 @@ export const HarvestForm = ({
     const selectedTankObj = tanks.find((t) => String(t.id) === String(data.tankId));
     const rawTankName = selectedTankObj ? (selectedTankObj.name || selectedTankObj.tankName) : 'Selected Tank';
     const cleanTankName = rawTankName.replace(/\s*\([^)]*\)/g, '').trim();
+    const selectedSiteName = selectedTankObj?.site?.siteName || selectedTankObj?.site?.name || selectedTankObj?.siteName || '';
 
     const numericWeight = parseFloat(data.harvestWeight);
     const numericCount = data.shrimpCount ? parseFloat(data.shrimpCount) : null;
@@ -152,6 +154,7 @@ export const HarvestForm = ({
       harvestExpense: parseFloat(data.harvestExpense || 0),
       notes: data.notes ? String(data.notes).trim() : '',
       tankName: cleanTankName,
+      siteName: selectedSiteName,
     };
 
     try {

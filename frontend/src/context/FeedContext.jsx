@@ -21,16 +21,26 @@ export const FeedProvider = ({ children }) => {
     try {
       const res = await feedService.getFeeds();
       const list = res.data || res || [];
-      const normalized = (Array.isArray(list) ? list : []).map((f) => ({
-        ...f,
-        id: String(f.id),
-        tankId: String(f.crop?.tankId || f.crop?.tank?.id || f.tankId || ''),
-        feedingDate: f.date ? new Date(f.date).toISOString().split('T')[0] : f.feedingDate,
-        quantityKg: f.quantity ?? f.quantityKg,
-        feedCost: f.totalCost ?? f.feedCost ?? (f.quantity * f.costPerKg),
-        tankName: f.crop?.tank?.tankName || f.tankName || 'Tank',
-        cropName: f.crop?.cropName || f.cropName || 'Crop',
-      }));
+      const normalized = (Array.isArray(list) ? list : []).map((f) => {
+        const cropTank = f.crop?.tank;
+        const tankObj = cropTank || f.tank;
+        const rawTank = tankObj?.tankName || tankObj?.name || f.tankName || 'Tank';
+        const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim();
+        const rawSite = cropTank?.site?.siteName || f.siteName || f.site?.siteName || tankObj?.site?.siteName || tankObj?.siteName || '';
+        const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+
+        return {
+          ...f,
+          id: String(f.id),
+          tankId: String(f.crop?.tankId || f.crop?.tank?.id || f.tankId || ''),
+          feedingDate: f.date ? new Date(f.date).toISOString().split('T')[0] : f.feedingDate,
+          quantityKg: f.quantity ?? f.quantityKg,
+          feedCost: f.totalCost ?? f.feedCost ?? (f.quantity * f.costPerKg),
+          tankName: cleanTank,
+          siteName: cleanSite,
+          cropName: f.crop?.cropName || f.cropName || 'Crop',
+        };
+      });
       setFeedLogs(normalized);
     } catch (err) {
       console.error('Error fetching feed logs:', err);

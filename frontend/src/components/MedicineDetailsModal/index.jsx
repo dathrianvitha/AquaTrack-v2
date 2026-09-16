@@ -31,9 +31,14 @@ export const MedicineDetailsModal = ({
 
   const displayMedName = medicineName || 'Treatment Record';
 
-  // Safely format tank name to NEVER display water source
+  // Format tank name and site name cleanly: e.g. "K1 — Juvvalapalem"
   const rawTank = tankName || record?.tank?.name || record?.tank?.tankName || 'Not assigned';
-  const displayTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
+  const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
+  const rawSite = record?.siteName || record?.site?.siteName || record?.tank?.site?.siteName || record?.tank?.siteName || '';
+  const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+  const displayTank = cleanSite && !cleanTank.toLowerCase().includes(cleanSite.toLowerCase())
+    ? `${cleanTank} — ${cleanSite}`
+    : cleanTank;
 
   const numericQty = parseFloat(quantity) || 0;
   const numericCost = parseFloat(cost) || 0;

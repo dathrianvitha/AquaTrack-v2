@@ -37,9 +37,14 @@ export const FeedDetailsModal = ({
   const displayBrand = feedBrand || 'Not specified';
   const displayType = feedType || 'Not specified';
 
-  // Safely format tank name to NEVER display water source
+  // Format tank name and site name cleanly: e.g. "K1 — Juvvalapalem"
   const rawTank = tankName || feedLog?.tank?.name || feedLog?.tank?.tankName || 'Not assigned';
-  const displayTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
+  const cleanTank = rawTank.replace(/\s*\([^)]*\)/g, '').trim() || rawTank;
+  const rawSite = feedLog?.siteName || feedLog?.site?.siteName || feedLog?.crop?.tank?.site?.siteName || feedLog?.crop?.tank?.siteName || feedLog?.tank?.site?.siteName || feedLog?.tank?.siteName || '';
+  const cleanSite = rawSite.replace(/\s*\([^)]*\)/g, '').trim();
+  const displayTank = cleanSite && !cleanTank.toLowerCase().includes(cleanSite.toLowerCase())
+    ? `${cleanTank} — ${cleanSite}`
+    : cleanTank;
 
   const numericQty = parseFloat(quantity ?? quantityKg) || 0;
   const numericCostPerKg = parseFloat(costPerKg ?? pricePerKg ?? (feedCost && numericQty ? feedCost / numericQty : 0)) || 0;

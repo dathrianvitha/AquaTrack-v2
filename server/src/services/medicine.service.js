@@ -281,9 +281,11 @@ export const getMedicines = async (
             },
 
             include: {
-
-                tank: true
-
+                tank: {
+                    include: {
+                        site: true
+                    }
+                }
             },
 
             orderBy: {
@@ -334,9 +336,11 @@ export const getMedicineById = async (
             },
 
             include: {
-
-                tank: true
-
+                tank: {
+                    include: {
+                        site: true
+                    }
+                }
             }
 
         });

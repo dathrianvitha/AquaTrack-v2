@@ -27,6 +27,7 @@ export const HarvestProvider = ({ children }) => {
         tankId: String(h.crop?.tankId || h.crop?.tank?.id || h.tankId || ''),
         harvestDate: h.harvestDate ? new Date(h.harvestDate).toISOString().split('T')[0] : h.harvestDate,
         tankName: h.crop?.tank?.tankName || h.crop?.tank?.name || h.tankName || 'Tank',
+        siteName: h.crop?.tank?.site?.siteName || h.crop?.tank?.site?.name || h.siteName || h.crop?.siteName || '',
         cropName: h.crop?.cropName || h.cropName || 'Crop',
       }));
       setHarvests(normalized);
@@ -82,7 +83,8 @@ export const HarvestProvider = ({ children }) => {
       id: String(created.id),
       tankId: String(created.crop?.tankId || created.crop?.tank?.id || newHarvestData.tankId || ''),
       harvestDate: created.harvestDate ? new Date(created.harvestDate).toISOString().split('T')[0] : payload.harvestDate,
-      tankName: newHarvestData.tankName || 'Tank',
+      tankName: created.crop?.tank?.tankName || created.crop?.tank?.name || newHarvestData.tankName || 'Tank',
+      siteName: created.crop?.tank?.site?.siteName || created.crop?.tank?.site?.name || newHarvestData.siteName || '',
     };
     setHarvests((prev) => [normalized, ...prev]);
     emitDataMutation('HARVEST', 'CREATE', normalized);
@@ -115,6 +117,7 @@ export const HarvestProvider = ({ children }) => {
       tankId: String(updated.crop?.tankId || updated.crop?.tank?.id || updatedData.tankId || ''),
       harvestDate: updated.harvestDate ? new Date(updated.harvestDate).toISOString().split('T')[0] : updatedData.harvestDate,
       tankName: updated.crop?.tank?.tankName || updated.crop?.tank?.name || updatedData.tankName || 'Tank',
+      siteName: updated.crop?.tank?.site?.siteName || updated.crop?.tank?.site?.name || updatedData.siteName || '',
     };
     setHarvests((prev) => prev.map((item) => (String(item.id) === targetId ? { ...item, ...normalized } : item)));
     emitDataMutation('HARVEST', 'UPDATE', normalized);

@@ -15,13 +15,16 @@ import { ExpenseForm } from '../../components/ExpenseForm';
 import { ExpenseFilters } from '../../components/ExpenseFilters';
 import { ExpenseDetailsModal } from '../../components/ExpenseDetailsModal';
 import { useExpenses } from '../../context/ExpenseContext';
+import { useTanks } from '../../context/TankContext';
 
 export default function Expenses() {
   const navigate = useNavigate();
   const { expenses = [], addExpense, updateExpense, deleteExpense, loading, error } = useExpenses();
+  const { tanks = [] } = useTanks();
 
-  // Filter State (Category & Tank filters retained)
+  // Filter State (Category, Site, & Tank filters)
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
   const [tankFilter, setTankFilter] = useState('');
 
   // Modal Control States
@@ -37,24 +40,50 @@ export default function Expenses() {
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [deletingExpense, setDeletingExpense] = useState(null);
 
+  const handleSiteChange = (newSiteId) => {
+    setSiteFilter(newSiteId);
+    if (tankFilter) {
+      const selectedTank = tanks.find((t) => String(t.id) === String(tankFilter));
+      if (selectedTank && newSiteId && String(selectedTank.siteId) !== String(newSiteId)) {
+        setTankFilter('');
+      }
+    }
+  };
+
   const filteredExpenses = useMemo(() => {
     const list = expenses || [];
 
     return list.filter((exp) => {
       if (!exp) return false;
-      const matchesCategory = categoryFilter === '' || exp.category === categoryFilter;
 
-      if (!tankFilter || tankFilter === '') return matchesCategory;
+      // 1. Category Filter check
+      const matchesCategory = categoryFilter === '' || exp.category === categoryFilter;
+      if (!matchesCategory) return false;
 
       const expTankId = String(exp.tankId || exp.crop?.tankId || exp.crop?.tank?.id || '');
-      const expTankName = String(exp.tankName || exp.crop?.tank?.tankName || exp.crop?.tank?.name || '').toLowerCase();
-      const filterVal = String(tankFilter).toLowerCase();
+      const tankObj = tanks.find((t) => String(t.id) === expTankId);
 
-      const matchesTank = expTankId === String(tankFilter) || expTankName === filterVal || expTankName.includes(filterVal);
+      const expSiteId = String(
+        exp.crop?.tank?.siteId ||
+        exp.crop?.tank?.site?.id ||
+        exp.siteId ||
+        tankObj?.siteId ||
+        ''
+      );
 
-      return matchesCategory && matchesTank;
+      // 2. Site Filter check
+      if (siteFilter && expSiteId !== String(siteFilter)) {
+        return false;
+      }
+
+      // 3. Tank Filter check
+      if (tankFilter && expTankId !== String(tankFilter)) {
+        return false;
+      }
+
+      return true;
     });
-  }, [expenses, categoryFilter, tankFilter]);
+  }, [expenses, categoryFilter, siteFilter, tankFilter, tanks]);
 
   // Operational Metrics Summary (Total Expenses Amount & Total Records Count)
   const stats = useMemo(() => {
@@ -127,6 +156,7 @@ export default function Expenses() {
 
   const handleResetFilters = () => {
     setCategoryFilter('');
+    setSiteFilter('');
     setTankFilter('');
   };
 
@@ -187,10 +217,12 @@ export default function Expenses() {
         </Card>
       </div>
 
-      {/* 3. FILTERS AREA (Select Category & Select Tank) */}
+      {/* 3. FILTERS AREA (Select Category, Select Site & Select Tank) */}
       <ExpenseFilters
         categoryFilter={categoryFilter}
         onCategoryChange={setCategoryFilter}
+        siteFilter={siteFilter}
+        onSiteChange={handleSiteChange}
         tankFilter={tankFilter}
         onTankChange={setTankFilter}
         onReset={handleResetFilters}
@@ -214,15 +246,15 @@ export default function Expenses() {
           <EmptyState
             title="No Expenses Recorded"
             description={
-              categoryFilter || tankFilter
+              categoryFilter || siteFilter || tankFilter
                 ? "No expense records match your selected filter criteria. Try resetting filters."
                 : "Log farm operating expenses to track overall production expenditure."
             }
             actionLabel={
-              categoryFilter || tankFilter ? "Reset Filters" : "Add New Expense"
+              categoryFilter || siteFilter || tankFilter ? "Reset Filters" : "Add New Expense"
             }
             onAction={
-              categoryFilter || tankFilter ? handleResetFilters : handleOpenAdd
+              categoryFilter || siteFilter || tankFilter ? handleResetFilters : handleOpenAdd
             }
           />
         </Card>
