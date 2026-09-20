@@ -408,6 +408,178 @@ export default function Reports() {
   const selectedSiteObject = displaySites.find((s) => String(s.id) === String(selectedSiteId));
   const selectedTankObject = displayTanks.find((t) => String(t.id) === String(selectedTankId));
 
+  const handleExportCSV = () => {
+    if (!reportData) return;
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    const cleanStr = (s) => (s || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    let levelLabel = 'Farm';
+    let fileName = `AquaTrack_Farm_Report_${dateStr}.csv`;
+
+    const siteName = site.siteName || selectedSiteObject?.siteName || '';
+    const tankName = tank.tankName || selectedTankObject?.tankName || '';
+
+    if (reportLevel === 'SITE') {
+      levelLabel = 'Site';
+      fileName = `AquaTrack_Site_${cleanStr(siteName) || 'Selected'}_Report_${dateStr}.csv`;
+    } else if (reportLevel === 'TANK') {
+      levelLabel = 'Tank';
+      fileName = `AquaTrack_Tank_${cleanStr(tankName) || 'Selected'}_Report_${dateStr}.csv`;
+    }
+
+    const escapeCell = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val);
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+
+    const rows = [];
+
+    // Header Title
+    rows.push([escapeCell('AquaTrack - Farm Analytics & Reports')]);
+    rows.push([]);
+
+    // Report Metadata Scope
+    rows.push([escapeCell('Report Scope'), escapeCell(`${levelLabel} Report`)]);
+    if (siteName) {
+      rows.push([escapeCell('Site'), escapeCell(siteName)]);
+    }
+    if (tankName) {
+      rows.push([escapeCell('Tank'), escapeCell(tankName)]);
+    }
+    if (reportLevel === 'TANK' && crop.cropName) {
+      rows.push([escapeCell('Batch / Crop'), escapeCell(crop.cropName)]);
+    }
+    rows.push([escapeCell('Generated Date'), escapeCell(new Date().toLocaleDateString('en-IN'))]);
+    rows.push([]);
+    rows.push([escapeCell('--------------------------------------------------')]);
+    rows.push([]);
+
+    // SUMMARY Section
+    rows.push([escapeCell('SUMMARY')]);
+    rows.push([escapeCell('Metric'), escapeCell('Amount')]);
+    rows.push([escapeCell('Total Feed Cost'), summary.totalFeedCost || 0]);
+    rows.push([escapeCell('Total Medicine Cost'), summary.totalMedicineCost || 0]);
+    rows.push([escapeCell('Pond Lease Cost'), summary.totalPondLeaseCost || 0]);
+    rows.push([escapeCell('Other Expenses'), summary.totalExpenseCost || 0]);
+    rows.push([escapeCell('Total Expenditure'), summary.totalExpenses || 0]);
+    rows.push([]);
+    rows.push([escapeCell('--------------------------------------------------')]);
+    rows.push([]);
+
+    // EXPENSE CATEGORY BREAKDOWN Section
+    rows.push([escapeCell('EXPENSE CATEGORY BREAKDOWN')]);
+    rows.push([escapeCell('Category'), escapeCell('Total Amount'), escapeCell('Percentage')]);
+    const totalExp = summary.totalExpenses || 1;
+    (expenseBreakdown || []).forEach((item) => {
+      const pct = Number(((item.amount / totalExp) * 100).toFixed(1));
+      rows.push([escapeCell(item.category), item.amount, pct]);
+    });
+    rows.push([]);
+    rows.push([escapeCell('--------------------------------------------------')]);
+    rows.push([]);
+
+    // FEED HISTORY LOGS
+    if (feedHistory && feedHistory.length > 0) {
+      rows.push([escapeCell('FEED HISTORY LOGS')]);
+      rows.push([escapeCell('Date'), escapeCell('Feed Type'), escapeCell('Brand'), escapeCell('Quantity (kg)'), escapeCell('Total Cost')]);
+      feedHistory.forEach((item) => {
+        const d = item.date ? new Date(item.date).toLocaleDateString('en-IN') : 'N/A';
+        rows.push([
+          escapeCell(d),
+          escapeCell(item.feedType || ''),
+          escapeCell(item.feedBrand || ''),
+          item.quantity || 0,
+          item.totalCost || 0
+        ]);
+      });
+      rows.push([]);
+      rows.push([escapeCell('--------------------------------------------------')]);
+      rows.push([]);
+    }
+
+    // MEDICINE HISTORY LOGS
+    if (medicineHistory && medicineHistory.length > 0) {
+      rows.push([escapeCell('MEDICINE RECORDS')]);
+      rows.push([escapeCell('Date'), escapeCell('Medicine Name'), escapeCell('Purpose'), escapeCell('Cost')]);
+      medicineHistory.forEach((item) => {
+        const d = item.date ? new Date(item.date).toLocaleDateString('en-IN') : 'N/A';
+        rows.push([
+          escapeCell(d),
+          escapeCell(item.medicineName || ''),
+          escapeCell(item.purpose || ''),
+          item.cost || 0
+        ]);
+      });
+      rows.push([]);
+      rows.push([escapeCell('--------------------------------------------------')]);
+      rows.push([]);
+    }
+
+    // GENERAL EXPENSE LOGS
+    if (expenseHistory && expenseHistory.length > 0) {
+      rows.push([escapeCell('EXPENSE LOGS')]);
+      rows.push([escapeCell('Date'), escapeCell('Category'), escapeCell('Payment Mode'), escapeCell('Amount')]);
+      expenseHistory.forEach((item) => {
+        const d = item.date ? new Date(item.date).toLocaleDateString('en-IN') : 'N/A';
+        rows.push([
+          escapeCell(d),
+          escapeCell(item.category || ''),
+          escapeCell(item.paymentMode || ''),
+          item.amount || 0
+        ]);
+      });
+      rows.push([]);
+      rows.push([escapeCell('--------------------------------------------------')]);
+      rows.push([]);
+    }
+
+    // HARVEST YIELD & SALES LOG
+    if (harvestHistory && harvestHistory.length > 0) {
+      rows.push([escapeCell('HARVEST YIELD & SALES LOG')]);
+      rows.push([
+        escapeCell('Harvest #'),
+        escapeCell('Harvest Level'),
+        escapeCell('Date'),
+        escapeCell('Harvest Weight (kg)'),
+        escapeCell('Shrimp Count'),
+        escapeCell('Price per kg'),
+        escapeCell('Revenue'),
+        escapeCell('Expense'),
+        escapeCell('Buyer')
+      ]);
+      harvestHistory.forEach((item, idx) => {
+        const hNum = item.harvestNumber || (idx + 1);
+        const levelLabel = getHarvestLevelLabel(hNum, item.harvestType);
+        const d = item.harvestDate ? new Date(item.harvestDate).toLocaleDateString('en-IN') : 'N/A';
+        const weight = item.harvestWeight || item.production || 0;
+        rows.push([
+          hNum,
+          escapeCell(levelLabel),
+          escapeCell(d),
+          weight,
+          escapeCell(item.shrimpCount || 'N/A'),
+          item.sellingPrice || 0,
+          item.revenue || 0,
+          item.harvestExpense || 0,
+          escapeCell(item.buyerName || 'N/A')
+        ]);
+      });
+    }
+
+    const csvContent = rows.map((r) => r.join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* 1. PAGE HEADER */}
@@ -427,9 +599,10 @@ export default function Reports() {
             <Button
               variant="primary"
               size="sm"
-              onClick={() => window.print()}
+              onClick={handleExportCSV}
               icon={<Download className="w-4 h-4" />}
               className="font-semibold shadow-xs"
+              disabled={!reportData}
             >
               Export Report
             </Button>

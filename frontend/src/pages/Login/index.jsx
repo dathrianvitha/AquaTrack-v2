@@ -153,8 +153,10 @@ export default function Login() {
                   />
                   <button
                     type="button"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-3 text-text-secondary hover:text-text-primary focus:outline-none p-1 rounded-md"
+                    className="absolute right-3 text-text-secondary hover:text-text-primary focus:outline-none p-1 rounded-md transition-colors"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

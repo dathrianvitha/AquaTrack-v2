@@ -51,9 +51,11 @@ model Farm {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  sites       Site[]
-  stockings   Stocking[]
-  otherStocks OtherStock[]
+  sites          Site[]
+  stockings      Stocking[]
+  otherStocks    OtherStock[]
+  otherTransfers OtherStockTransfer[]
+  stockTransfers StockTransfer[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -75,10 +77,15 @@ model Site {
   farmId String
   farm   Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
 
-  tanks            Tank[]
-  stockings        Stocking[]
-  stockAllocations SiteStockAllocation[]
-  nettings         Netting[]
+  tanks              Tank[]
+  stockings          Stocking[]
+  stockAllocations   SiteStockAllocation[]
+  nettings           Netting[]
+  transfersFrom      StockTransfer[]       @relation("TransfersFrom")
+  transfersTo        StockTransfer[]       @relation("TransfersTo")
+  otherStocks        OtherStock[]
+  otherTransfersFrom OtherStockTransfer[]  @relation("OtherTransfersFrom")
+  otherTransfersTo   OtherStockTransfer[]  @relation("OtherTransfersTo")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -102,6 +109,9 @@ model Stocking {
   farm   Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
 
   allocations SiteStockAllocation[]
+
+  transferId String?        @unique
+  transfer   StockTransfer? @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -320,14 +330,61 @@ model PondLease {
 }
 
 model OtherStock {
-  id        String   @id @default(cuid())
-  category  String
-  count     Int
-  notes     String?
-  farmId    String
-  farm      Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  category    String
+  count       Int
+  underRepair Int      @default(0)
+  notes       String?
+
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  farmId String
+  farm   Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  transferId String?             @unique
+  transfer   OtherStockTransfer? @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  repairLogs OtherStockRepairLog[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model OtherStockRepairLog {
+  id           String   @id @default(cuid())
+  actionType   String
+  quantity     Int
+  notes        String?
+  actionDate   DateTime @default(now())
+
+  otherStockId String
+  otherStock   OtherStock @relation(fields: [otherStockId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+model OtherStockTransfer {
+  id       String @id @default(cuid())
+  category String
+  quantity Int
+
+  fromSiteId String
+  fromSite   Site   @relation("OtherTransfersFrom", fields: [fromSiteId], references: [id], onDelete: Cascade)
+
+  toSiteId String
+  toSite   Site   @relation("OtherTransfersTo", fields: [toSiteId], references: [id], onDelete: Cascade)
+
+  farmId String
+  farm   Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  destinationStock OtherStock?
+
+  transferDate DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Netting {
@@ -349,3 +406,25 @@ model Netting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model StockTransfer {
+  id           String        @id @default(cuid())
+  category     StockCategory
+  quantity     Float
+  unit         String        @default("kg")
+
+  fromSiteId String
+  fromSite   Site   @relation("TransfersFrom", fields: [fromSiteId], references: [id], onDelete: Cascade)
+
+  toSiteId String
+  toSite   Site   @relation("TransfersTo", fields: [toSiteId], references: [id], onDelete: Cascade)
+
+  farmId String
+  farm   Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  destinationStocking Stocking?
+
+  transferDate DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

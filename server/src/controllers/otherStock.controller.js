@@ -2,7 +2,12 @@ import {
   getOtherStocksService,
   createOtherStockService,
   updateOtherStockService,
-  deleteOtherStockService
+  deleteOtherStockService,
+  transferOtherStockService,
+  sendToRepairService,
+  returnFromRepairService,
+  deleteOtherStockRepairLogService,
+  getOtherStockTransfersService
 } from "../services/otherStock.service.js";
 
 /*
@@ -69,15 +74,16 @@ export const updateOtherStockController = async (req, res) => {
 };
 
 /*
- * Delete Other Stock
+ * Transfer Other Stock
  */
-export const deleteOtherStockController = async (req, res) => {
+export const transferOtherStockController = async (req, res) => {
   try {
-    await deleteOtherStockService(req.user.id, req.params.id);
+    const result = await transferOtherStockService(req.user.id, req.body);
 
     return res.status(200).json({
       success: true,
-      message: "Other stock deleted successfully"
+      message: result.message,
+      data: result
     });
   } catch (error) {
     return res.status(400).json({
@@ -86,3 +92,113 @@ export const deleteOtherStockController = async (req, res) => {
     });
   }
 };
+
+/*
+ * Send Other Stock to Repair
+ */
+export const sendToRepairController = async (req, res) => {
+  try {
+    const result = await sendToRepairService(
+      req.user.id,
+      req.params.id,
+      req.body.quantity,
+      req.body.notes
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.data
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
+ * Return Other Stock from Repair
+ */
+export const returnFromRepairController = async (req, res) => {
+  try {
+    const result = await returnFromRepairService(
+      req.user.id,
+      req.params.id,
+      req.body.quantity,
+      req.body.notes
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.data
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
+ * Delete Other Stock Repair Log entry
+ */
+export const deleteOtherStockRepairLogController = async (req, res) => {
+  try {
+    const result = await deleteOtherStockRepairLogService(req.user.id, req.params.logId);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.data
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
+ * Delete Other Stock
+ */
+export const deleteOtherStockController = async (req, res) => {
+  try {
+    const result = await deleteOtherStockService(req.user.id, req.params.id);
+
+    return res.status(200).json({
+      success: true,
+      message: result?.message || "Other stock deleted successfully"
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
+ * Get Other Stock Transfer Logs
+ */
+export const getOtherStockTransfersController = async (req, res) => {
+  try {
+    const transfers = await getOtherStockTransfersService(req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      data: transfers
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+

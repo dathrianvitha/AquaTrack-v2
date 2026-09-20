@@ -103,6 +103,10 @@ export const getNettings = async (userId, filters = {}) => {
     where.tankId = filters.tankId;
   }
 
+  if (!prisma.netting || typeof prisma.netting.findMany !== 'function') {
+    return [];
+  }
+
   const nettings = await prisma.netting.findMany({
     where,
     include: {

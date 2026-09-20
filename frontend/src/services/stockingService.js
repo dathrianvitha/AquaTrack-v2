@@ -102,6 +102,26 @@ export const deleteAllocation = async (allocationId, password) => {
   }
 };
 
+// Transfer Stock Between Sites (POST /api/stocking/transfer)
+export const transferStock = async (data) => {
+  try {
+    const response = await api.post('/stocking/transfer', data);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to transfer stock between sites');
+  }
+};
+
+// Get Stock Transfer Logs (GET /api/stocking/transfers)
+export const getTransferLogs = async () => {
+  try {
+    const response = await api.get(`/stocking/transfers?_t=${Date.now()}`);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to fetch stock transfer logs');
+  }
+};
+
 export const stockingService = {
   createStocking,
   getStockings,
@@ -112,6 +132,8 @@ export const stockingService = {
   updateAllocation,
   deleteAllocation,
   getSiteStockAllocations,
+  transferStock,
+  getTransferLogs,
 };
 
 export default stockingService;

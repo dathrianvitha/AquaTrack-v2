@@ -21,6 +21,43 @@ export default function PondLeaseManagement() {
   const { tanks } = useTanks();
   const { sites = [] } = useSites();
 
+  // Site Filter State
+  const [selectedSiteFilter, setSelectedSiteFilter] = useState('ALL');
+
+  // Dynamic Site Filter Options
+  const siteFilterOptions = useMemo(() => {
+    return [
+      { value: 'ALL', label: 'All Sites' },
+      ...sites.map((s) => ({
+        value: String(s.id),
+        label: s.siteName || s.name || 'Site',
+      })),
+    ];
+  }, [sites]);
+
+  // Tanks filtered by selected site ID
+  const siteTanksForFilter = useMemo(() => {
+    if (!selectedSiteFilter || selectedSiteFilter === 'ALL') return tanks;
+    const filterSiteIdStr = String(selectedSiteFilter);
+    return tanks.filter((t) => String(t.siteId || t.site?.id || '') === filterSiteIdStr);
+  }, [tanks, selectedSiteFilter]);
+
+  // Leases filtered by selected site ID via actual siteId / tankId relationships
+  const filteredLeases = useMemo(() => {
+    if (!selectedSiteFilter || selectedSiteFilter === 'ALL') return leases;
+    const filterSiteIdStr = String(selectedSiteFilter);
+    const siteTankIds = new Set(siteTanksForFilter.map((t) => String(t.id)));
+
+    return leases.filter((lease) => {
+      const leaseTankSiteId = String(lease.tank?.siteId || lease.tank?.site?.id || '');
+      if (leaseTankSiteId && leaseTankSiteId === filterSiteIdStr) {
+        return true;
+      }
+      const leaseTankId = String(lease.tankId || lease.tank?.id || '');
+      return siteTankIds.has(leaseTankId);
+    });
+  }, [leases, siteTanksForFilter, selectedSiteFilter]);
+
   // Modals & Active View State
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingLease, setEditingLease] = useState(null);
@@ -357,7 +394,7 @@ export default function PondLeaseManagement() {
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase text-text-secondary tracking-wider block">Active Pond Leases</span>
-              <span className="text-lg font-bold text-text-primary tracking-tight">{leases.length} Leases</span>
+              <span className="text-lg font-bold text-text-primary tracking-tight">{filteredLeases.length} Leases</span>
             </div>
           </div>
         </Card>
@@ -370,7 +407,7 @@ export default function PondLeaseManagement() {
             <div>
               <span className="text-[10px] font-semibold uppercase text-text-secondary tracking-wider block">Total Lease Outlay</span>
               <span className="text-lg font-bold text-text-primary tracking-tight">
-                ₹{leases.reduce((sum, l) => sum + (l.totalLeaseAmount || 0), 0).toLocaleString()}
+                ₹{filteredLeases.reduce((sum, l) => sum + (l.totalLeaseAmount || 0), 0).toLocaleString()}
               </span>
             </div>
           </div>
@@ -384,7 +421,7 @@ export default function PondLeaseManagement() {
             <div>
               <span className="text-[10px] font-semibold uppercase text-text-secondary tracking-wider block">Assigned Farm Tanks</span>
               <span className="text-lg font-bold text-text-primary tracking-tight">
-                {new Set(leases.map((l) => l.tankId)).size} / {tanks.length} Tanks
+                {new Set(filteredLeases.map((l) => String(l.tankId || l.tank?.id))).size} / {siteTanksForFilter.length} Tanks
               </span>
             </div>
           </div>
@@ -393,14 +430,30 @@ export default function PondLeaseManagement() {
 
       {/* 3. MAIN POND LEASE TABLE */}
       <Card padding="none" className="border-border/80 shadow-2xs overflow-hidden">
-        <div className="px-6 py-4 border-b border-border/80 flex items-center justify-between bg-gray-50/50">
-          <h2 className="text-base font-semibold text-text-primary">Pond Leases Overview</h2>
-          <span className="text-xs text-text-secondary font-medium">{leases.length} records found</span>
+        <div className="px-6 py-4 border-b border-border/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-50/50">
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Pond Leases Overview</h2>
+            <span className="text-xs text-text-secondary font-medium">{filteredLeases.length} records found</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Site Filter:</span>
+            <select
+              className="px-3 py-1.5 text-xs font-semibold border border-border rounded-lg bg-white text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs cursor-pointer"
+              value={selectedSiteFilter}
+              onChange={(e) => setSelectedSiteFilter(e.target.value)}
+            >
+              {siteFilterOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {loading ? (
           <div className="p-8 text-center text-text-secondary text-sm">Loading pond leases...</div>
-        ) : leases.length > 0 ? (
+        ) : filteredLeases.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm border-collapse">
               <thead>
@@ -415,7 +468,7 @@ export default function PondLeaseManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {leases.map((lease) => (
+                {filteredLeases.map((lease) => (
                   <tr key={lease.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="py-4 px-6 font-semibold text-text-primary">
                       {lease.tank?.tankName || 'Tank'}
@@ -475,10 +528,14 @@ export default function PondLeaseManagement() {
         ) : (
           <div className="p-8">
             <EmptyState
-              title="No Pond Leases Configured"
-              description="Add a lease duration and total lease cost for your farm tanks to automatically compute daily and crop-wise lease cost allocation."
-              actionLabel="Add New Pond Lease"
-              onAction={handleOpenAdd}
+              title={selectedSiteFilter !== 'ALL' ? "No Pond Leases Found for Selected Site" : "No Pond Leases Configured"}
+              description={
+                selectedSiteFilter !== 'ALL'
+                  ? "There are no pond lease records associated with tanks in the selected site."
+                  : "Add a lease duration and total lease cost for your farm tanks to automatically compute daily and crop-wise lease cost allocation."
+              }
+              actionLabel={selectedSiteFilter !== 'ALL' ? undefined : "Add New Pond Lease"}
+              onAction={selectedSiteFilter !== 'ALL' ? undefined : handleOpenAdd}
             />
           </div>
         )}

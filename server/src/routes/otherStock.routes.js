@@ -8,12 +8,20 @@ import {
   getOtherStocksController,
   createOtherStockController,
   updateOtherStockController,
-  deleteOtherStockController
+  deleteOtherStockController,
+  transferOtherStockController,
+  sendToRepairController,
+  returnFromRepairController,
+  deleteOtherStockRepairLogController,
+  getOtherStockTransfersController
 } from "../controllers/otherStock.controller.js";
 
 import {
   createOtherStockSchema,
-  updateOtherStockSchema
+  updateOtherStockSchema,
+  transferOtherStockSchema,
+  sendToRepairSchema,
+  returnFromRepairSchema
 } from "../validations/otherStock.validation.js";
 
 const router = Router();
@@ -34,6 +42,46 @@ router.post(
 );
 
 /*
+ * Get Other Stock Transfer Logs
+ */
+router.get("/transfers", auth, getOtherStockTransfersController);
+
+/*
+ * Transfer Other Stock item
+ */
+router.post(
+  "/transfer",
+  auth,
+  validate(transferOtherStockSchema),
+  transferOtherStockController
+);
+
+/*
+ * Send Other Stock to Repair
+ */
+router.patch(
+  "/:id/repair",
+  auth,
+  validate(sendToRepairSchema),
+  sendToRepairController
+);
+
+/*
+ * Return Other Stock from Repair
+ */
+router.patch(
+  "/:id/return-repair",
+  auth,
+  validate(returnFromRepairSchema),
+  returnFromRepairController
+);
+
+/*
+ * Delete Other Stock Repair Log entry
+ */
+router.delete("/repair-log/:logId", auth, deleteOtherStockRepairLogController);
+
+/*
  * Update Other Stock item
  */
 router.put(
@@ -49,3 +97,5 @@ router.put(
 router.delete("/:id", auth, verifyPassword, deleteOtherStockController);
 
 export default router;
+
+

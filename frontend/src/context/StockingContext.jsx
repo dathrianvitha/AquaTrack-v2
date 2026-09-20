@@ -202,6 +202,22 @@ export const StockingProvider = ({ children }) => {
     }
   };
 
+  // Transfer real stock between sites in database
+  const transferStock = async (transferData) => {
+    setError(null);
+    try {
+      const res = await stockingService.transferStock(transferData);
+      await fetchStockings(true);
+      emitDataMutation('STOCKING', 'TRANSFER', res);
+      return res;
+    } catch (err) {
+      console.error('[StockingContext] Transfer stock error:', err);
+      const msg = err.message || 'Failed to transfer stock between sites';
+      setError(msg);
+      throw new Error(msg);
+    }
+  };
+
   return (
     <StockingContext.Provider
       value={{
@@ -216,6 +232,7 @@ export const StockingProvider = ({ children }) => {
         updateAllocation,
         deleteAllocation,
         getSiteAllocations,
+        transferStock,
       }}
     >
       {children}

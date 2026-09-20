@@ -35,6 +35,16 @@ export const updateOtherStock = async (id, data) => {
   }
 };
 
+// Transfer Other Stock between sites (POST /api/other-stock/transfer)
+export const transferOtherStock = async (data) => {
+  try {
+    const response = await api.post('/other-stock/transfer', data);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to transfer other stock');
+  }
+};
+
 // Delete Other Stock item with password verification (DELETE /api/other-stock/:id)
 export const deleteOtherStock = async (id, password) => {
   try {
@@ -48,11 +58,59 @@ export const deleteOtherStock = async (id, password) => {
   }
 };
 
+// Send Other Stock to Repair (PATCH /api/other-stock/:id/repair)
+export const sendToRepair = async (id, quantity, notes) => {
+  try {
+    const response = await api.patch(`/other-stock/${id}/repair`, { quantity, notes });
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || error.message || 'Failed to send item for repair');
+  }
+};
+
+// Return Other Stock from Repair (PATCH /api/other-stock/:id/return-repair)
+export const returnFromRepair = async (id, quantity, notes) => {
+  try {
+    const response = await api.patch(`/other-stock/${id}/return-repair`, { quantity, notes });
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || error.message || 'Failed to return item from repair');
+  }
+};
+
+
+// Delete Other Stock Repair Log entry (DELETE /api/other-stock/repair-log/:logId)
+export const deleteRepairLog = async (logId) => {
+  try {
+    const response = await api.delete(`/other-stock/repair-log/${logId}`);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || error.message || 'Failed to delete repair log entry');
+  }
+};
+
+// Get Other Stock Transfer Logs (GET /api/other-stock/transfers)
+export const getTransferLogs = async () => {
+  try {
+    const response = await api.get(`/other-stock/transfers?_t=${Date.now()}`);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to fetch other stock transfer logs');
+  }
+};
+
 export const otherStockService = {
   getOtherStocks,
   createOtherStock,
   updateOtherStock,
-  deleteOtherStock
+  transferOtherStock,
+  deleteOtherStock,
+  sendToRepair,
+  returnFromRepair,
+  deleteRepairLog,
+  getTransferLogs,
 };
 
 export default otherStockService;
+
+
