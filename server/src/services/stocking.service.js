@@ -197,6 +197,16 @@ export const getStockings = async (
 
                 site: true,
 
+                transfer: {
+
+                    include: {
+
+                        fromSite: true
+
+                    }
+
+                },
+
                 allocations: {
 
                     include: {
@@ -257,7 +267,13 @@ export const getStockings = async (
 
                 remainingQuantity: Math.max(stocking.totalQuantity - usedQuantity, 0),
 
-                unit: stocking.unit
+                unit: stocking.unit,
+
+                transfer: stocking.transfer ? {
+                    id: stocking.transfer.id,
+                    fromSiteId: stocking.transfer.fromSiteId,
+                    fromSiteName: stocking.transfer.fromSite?.siteName
+                } : null
 
             });
 
@@ -311,6 +327,14 @@ export const getStockings = async (
             stockingDate: stocking.createdAt,
 
             updatedAt: stocking.updatedAt,
+
+            transfer: stocking.transfer ? {
+                id: stocking.transfer.id,
+                fromSiteId: stocking.transfer.fromSiteId,
+                fromSiteName: stocking.transfer.fromSite?.siteName,
+                quantity: stocking.transfer.quantity,
+                unit: stocking.transfer.unit
+            } : null,
 
             totalAllocated: stocking.siteId ? stocking.totalQuantity : totalAllocated,
 
@@ -496,6 +520,20 @@ export const deleteStocking = async (userId, stockingId) => {
 
             farmId: farm.id
 
+        },
+
+        include: {
+
+            transfer: {
+
+                include: {
+
+                    fromSite: true
+
+                }
+
+            }
+
         }
 
     });
@@ -504,6 +542,85 @@ export const deleteStocking = async (userId, stockingId) => {
     if (!stocking) {
 
         throw new Error("Stocking record not found.");
+
+    }
+
+
+    if (stocking.transfer) {
+
+        const { fromSiteId, quantity: transferQty, fromSite } = stocking.transfer;
+
+        const qtyToReturn = stocking.totalQuantity > 0 ? stocking.totalQuantity : transferQty;
+
+        const sourceSiteName = fromSite?.siteName || "source site";
+
+
+        return await prisma.$transaction(async (tx) => {
+
+            const sourceStocking = await tx.stocking.findFirst({
+
+                where: {
+
+                    farmId: farm.id,
+
+                    siteId: fromSiteId,
+
+                    category: stocking.category,
+
+                    transferId: null
+
+                },
+
+                orderBy: { createdAt: "desc" }
+
+            });
+
+
+            if (sourceStocking) {
+
+                await tx.stocking.update({
+
+                    where: { id: sourceStocking.id },
+
+                    data: { totalQuantity: sourceStocking.totalQuantity + qtyToReturn }
+
+                });
+
+            } else {
+
+                await tx.stocking.create({
+
+                    data: {
+
+                        category: stocking.category,
+
+                        totalQuantity: qtyToReturn,
+
+                        unit: stocking.unit,
+
+                        siteId: fromSiteId,
+
+                        farmId: farm.id
+
+                    }
+
+                });
+
+            }
+
+
+            await tx.stocking.delete({ where: { id: stocking.id } });
+
+            await tx.stockTransfer.delete({ where: { id: stocking.transfer.id } });
+
+
+            return {
+
+                message: `${qtyToReturn} ${stocking.unit} ${stocking.category === "FEED" ? "Feed" : "Medicine"} returned to ${sourceSiteName} and removed from destination.`
+
+            };
+
+        });
 
     }
 
@@ -687,3 +804,101 @@ export const deleteSiteStockAllocation = async (userId, allocationId) => {
     return { message: "Site stock allocation deleted successfully." };
 
 };
+
+
+/*
+ * Transfer Stock Between Sites
+ */
+export const transferStock = async (userId, transferData) => {
+    const farm = await getUserFarm(userId);
+    const { fromSiteId, toSiteId, category, quantity } = transferData;
+
+    if (!fromSiteId || !toSiteId) {
+        throw new Error("Both source site and destination site are required.");
+    }
+
+    if (fromSiteId === toSiteId) {
+        throw new Error("Source site and destination site must be different.");
+    }
+
+    const catUpper = category ? category.toUpperCase() : "";
+    if (catUpper !== "FEED" && catUpper !== "MEDICINE") {
+        throw new Error("Stock category must be FEED or MEDICINE.");
+    }
+
+    const parsedQty = parseFloat(quantity);
+    if (isNaN(parsedQty) || parsedQty <= 0) {
+        throw new Error("Transfer quantity must be greater than 0.");
+    }
+
+    const fromSite = await getUserSite(farm.id, fromSiteId);
+    const toSite = await getUserSite(farm.id, toSiteId);
+    const unit = catUpper === "MEDICINE" ? "L" : "kg";
+
+    const fromSiteStockings = await prisma.stocking.findMany({
+        where: {
+            farmId: farm.id,
+            siteId: fromSite.id,
+            category: catUpper
+        },
+        orderBy: { createdAt: "asc" }
+    });
+
+    const totalAddedAtFromSite = fromSiteStockings.reduce(
+        (sum, s) => sum + s.totalQuantity,
+        0
+    );
+    const totalUsedAtFromSite = await getSiteStockUsage(farm.id, fromSite.id, catUpper);
+    const availableRemaining = Math.max(totalAddedAtFromSite - totalUsedAtFromSite, 0);
+
+    if (parsedQty > availableRemaining) {
+        throw new Error(
+            `Insufficient ${catUpper === "FEED" ? "Feed" : "Medicine"} stock. Only ${availableRemaining} ${unit} is available for transfer.`
+        );
+    }
+
+    return await prisma.$transaction(async (tx) => {
+        let remainingToDeduct = parsedQty;
+
+        for (const stocking of fromSiteStockings) {
+            if (remainingToDeduct <= 0) break;
+            const deductAmt = Math.min(stocking.totalQuantity, remainingToDeduct);
+            const newQty = stocking.totalQuantity - deductAmt;
+
+            await tx.stocking.update({
+                where: { id: stocking.id },
+                data: { totalQuantity: Math.max(newQty, 0) }
+            });
+
+            remainingToDeduct -= deductAmt;
+        }
+
+        const transferLog = await tx.stockTransfer.create({
+            data: {
+                category: catUpper,
+                quantity: parsedQty,
+                unit,
+                fromSiteId: fromSite.id,
+                toSiteId: toSite.id,
+                farmId: farm.id
+            }
+        });
+
+        await tx.stocking.create({
+            data: {
+                category: catUpper,
+                totalQuantity: parsedQty,
+                unit,
+                siteId: toSite.id,
+                farmId: farm.id,
+                transferId: transferLog.id
+            }
+        });
+
+        return {
+            success: true,
+            message: `${parsedQty} ${unit} ${catUpper === "FEED" ? "Feed" : "Medicine"} transferred from ${fromSite.siteName} to ${toSite.siteName}.`,
+            data: transferLog
+        };
+    });
+};

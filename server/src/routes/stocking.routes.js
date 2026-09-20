@@ -12,14 +12,16 @@ import {
     updateStockingController,
     deleteStockingController,
     updateSiteStockAllocationController,
-    deleteSiteStockAllocationController
+    deleteSiteStockAllocationController,
+    transferStockController
 } from "../controllers/stocking.controller.js";
 
 import validate from "../middleware/validate.middleware.js";
 
 import {
     createStockingSchema,
-    allocateStockSchema
+    allocateStockSchema,
+    transferStockSchema
 } from "../validations/stocking.validation.js";
 
 const router = Router();
@@ -106,6 +108,17 @@ router.get(
     "/site/:siteId",
     auth,
     getSiteStockAllocationsController
+);
+
+
+/*
+ * Transfer Stock Between Sites
+ */
+router.post(
+    "/transfer",
+    auth,
+    validate(transferStockSchema),
+    transferStockController
 );
 
 

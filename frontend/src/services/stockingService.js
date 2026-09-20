@@ -102,6 +102,16 @@ export const deleteAllocation = async (allocationId, password) => {
   }
 };
 
+// Transfer Stock Between Sites (POST /api/stocking/transfer)
+export const transferStock = async (data) => {
+  try {
+    const response = await api.post('/stocking/transfer', data);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to transfer stock between sites');
+  }
+};
+
 export const stockingService = {
   createStocking,
   getStockings,
@@ -112,6 +122,7 @@ export const stockingService = {
   updateAllocation,
   deleteAllocation,
   getSiteStockAllocations,
+  transferStock,
 };
 
 export default stockingService;

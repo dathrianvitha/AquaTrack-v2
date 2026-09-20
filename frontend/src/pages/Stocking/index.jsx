@@ -10,7 +10,9 @@ import {
   Trash2,
   Calendar,
   Eye,
-  Wrench
+  Wrench,
+  ArrowRightLeft,
+  CheckCircle2
 } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -25,6 +27,7 @@ import { ConfirmationDialog } from '../../components/ConfirmationDialog';
 import { PasswordConfirmationModal } from '../../components/PasswordConfirmationModal';
 import { AddStockForm } from '../../components/AddStockModal';
 import { OtherStockModal } from '../../components/OtherStockModal';
+import { StockTransferModal } from '../../components/StockTransferModal';
 
 import { useStocking } from '../../context/StockingContext';
 import { useSites } from '../../context/SiteContext';
@@ -42,12 +45,18 @@ export default function Stocking() {
     fetchStockings,
     addStock,
     updateStock,
-    deleteStock
+    deleteStock,
+    transferStock
   } = useStocking();
   const { sites = [], loading: sitesLoading } = useSites();
   const { tanks = [] } = useTanks();
   const { feedLogs = [] } = useFeed();
   const { medicineRecords = [] } = useMedicine();
+
+  // Stock Transfer States
+  const [transferSource, setTransferSource] = useState(null);
+  const [isTransferSubmitting, setIsTransferSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   // Refetch stock inventory on mount / navigation and on real-time syncBus events
   useEffect(() => {
@@ -176,6 +185,7 @@ export default function Stocking() {
       let feedUnit = 'kg';
       let feedStockId = null;
       let feedStockingDate = null;
+      const feedItems = [];
 
       // Medicine Stock Metrics for this Site
       let medicineAdded = 0;
@@ -183,41 +193,40 @@ export default function Stocking() {
       let medicineUnit = 'L';
       let medicineStockId = null;
       let medicineStockingDate = null;
+      const medicineItems = [];
 
       stockings.forEach((s) => {
         const cat = s.category?.toUpperCase();
         const matchesSite = (s.siteId && String(s.siteId) === siteIdStr) || (s.site?.id && String(s.site.id) === siteIdStr);
 
         if (matchesSite) {
+          const qty = parseFloat(s.totalQuantity) || 0;
           if (cat === 'FEED') {
-            feedAdded += parseFloat(s.totalQuantity) || 0;
+            feedAdded += qty;
             backendFeedUsed = Math.max(backendFeedUsed, parseFloat(s.totalUsed) || 0);
             feedUnit = s.unit || 'kg';
-            feedStockId = s.id;
+            if (!feedStockId) feedStockId = s.id;
             if (!feedStockingDate) feedStockingDate = s.stockingDate || s.createdAt;
+            feedItems.push({
+              id: s.id,
+              totalQuantity: qty,
+              unit: s.unit || 'kg',
+              stockingDate: s.stockingDate || s.createdAt,
+              transfer: s.transfer || null
+            });
           } else if (cat === 'MEDICINE') {
-            medicineAdded += parseFloat(s.totalQuantity) || 0;
+            medicineAdded += qty;
             backendMedicineUsed = Math.max(backendMedicineUsed, parseFloat(s.totalUsed) || 0);
             medicineUnit = s.unit || 'L';
-            medicineStockId = s.id;
+            if (!medicineStockId) medicineStockId = s.id;
             if (!medicineStockingDate) medicineStockingDate = s.stockingDate || s.createdAt;
-          }
-        } else if (Array.isArray(s.siteStock)) {
-          const match = s.siteStock.find((ss) => String(ss.site?.id || ss.siteId) === siteIdStr);
-          if (match) {
-            if (cat === 'FEED') {
-              feedAdded += parseFloat(match.allocatedQuantity) || 0;
-              backendFeedUsed = Math.max(backendFeedUsed, parseFloat(match.usedQuantity) || 0);
-              feedUnit = match.unit || s.unit || 'kg';
-              if (!feedStockId) feedStockId = s.id;
-              if (!feedStockingDate) feedStockingDate = s.stockingDate || s.createdAt;
-            } else if (cat === 'MEDICINE') {
-              medicineAdded += parseFloat(match.allocatedQuantity) || 0;
-              backendMedicineUsed = Math.max(backendMedicineUsed, parseFloat(match.usedQuantity) || 0);
-              medicineUnit = match.unit || s.unit || 'L';
-              if (!medicineStockId) medicineStockId = s.id;
-              if (!medicineStockingDate) medicineStockingDate = s.stockingDate || s.createdAt;
-            }
+            medicineItems.push({
+              id: s.id,
+              totalQuantity: qty,
+              unit: s.unit || 'L',
+              stockingDate: s.stockingDate || s.createdAt,
+              transfer: s.transfer || null
+            });
           }
         }
       });
@@ -230,23 +239,25 @@ export default function Stocking() {
 
       return {
         site,
-        feed: feedAdded > 0 || feedUsed > 0 ? {
-          id: feedStockId,
+        feed: feedAdded > 0 || feedUsed > 0 || feedItems.length > 0 ? {
+          id: feedStockId || feedItems[0]?.id,
           added: feedAdded,
           used: feedUsed,
           remaining: feedRemaining,
           unit: feedUnit,
           stockingDate: feedStockingDate,
           siteName: site.siteName,
+          items: feedItems,
         } : null,
-        medicine: medicineAdded > 0 || medicineUsed > 0 ? {
-          id: medicineStockId,
+        medicine: medicineAdded > 0 || medicineUsed > 0 || medicineItems.length > 0 ? {
+          id: medicineStockId || medicineItems[0]?.id,
           added: medicineAdded,
           used: medicineUsed,
           remaining: medicineRemaining,
           unit: medicineUnit,
           stockingDate: medicineStockingDate,
           siteName: site.siteName,
+          items: medicineItems,
         } : null,
       };
     });
@@ -260,6 +271,18 @@ export default function Stocking() {
       setIsAddStockOpen(false);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleTransferSubmit = async (transferData) => {
+    setIsTransferSubmitting(true);
+    try {
+      const res = await transferStock(transferData);
+      setTransferSource(null);
+      setSuccessMessage(res?.message || 'Stock transferred successfully.');
+      setTimeout(() => setSuccessMessage(''), 5000);
+    } finally {
+      setIsTransferSubmitting(false);
     }
   };
 
@@ -296,9 +319,16 @@ export default function Stocking() {
 
   const handleFinalDeleteWithPassword = async (password) => {
     if (deletingStockId) {
-      await deleteStock(deletingStockId, password);
-      setIsPasswordOpen(false);
-      setDeletingStockId(null);
+      try {
+        const res = await deleteStock(deletingStockId, password);
+        setIsPasswordOpen(false);
+        setDeletingStockId(null);
+        setSuccessMessage(res?.message || 'Stock record deleted successfully.');
+        setTimeout(() => setSuccessMessage(''), 6000);
+      } catch (err) {
+        setIsPasswordOpen(false);
+        setDeletingStockId(null);
+      }
     }
   };
 
@@ -346,6 +376,17 @@ export default function Stocking() {
         </Card>
       )}
 
+      {/* COMPACT SUCCESS DISPLAY BANNER */}
+      {successMessage && (
+        <Card padding="compact" className="border-success/30 bg-success-light/20 text-success text-xs flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+            <span className="font-semibold">{successMessage}</span>
+          </div>
+          <button onClick={() => setSuccessMessage('')} className="text-text-secondary hover:text-text-primary p-0.5 cursor-pointer">✕</button>
+        </Card>
+      )}
+
       {/* LOADING SPINNER */}
       {(loading || sitesLoading) && !hasAnyStock ? (
         <div className="py-12 flex justify-center items-center">
@@ -388,9 +429,26 @@ export default function Stocking() {
                           <span className="text-xs text-text-secondary">{site.location || 'Site Location'}</span>
                         </div>
                       </div>
-                      <Badge variant={hasSiteStock ? 'success' : 'neutral'} size="sm">
-                        {hasSiteStock ? 'In Stock' : 'No Stock'}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={hasSiteStock ? 'success' : 'neutral'} size="sm">
+                          {hasSiteStock ? 'In Stock' : 'No Stock'}
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={() => setTransferSource({
+                            site,
+                            feedRemaining: feed?.remaining ?? 0,
+                            medicineRemaining: medicine?.remaining ?? 0,
+                            feedUnit: feed?.unit || 'kg',
+                            medicineUnit: medicine?.unit || 'L',
+                          })}
+                          icon={<ArrowRightLeft className="w-3.5 h-3.5" />}
+                          className="font-semibold text-xs py-1 px-2.5 shadow-2xs border-primary/30 text-primary hover:bg-primary-light/50"
+                        >
+                          Transfer
+                        </Button>
+                      </div>
                     </div>
 
                     {hasSiteStock ? (
@@ -464,6 +522,34 @@ export default function Stocking() {
                                 </span>
                               </div>
                             </div>
+
+                            {/* ITEMIZED BREAKDOWN FOR TRANSFERRED FEED STOCK ONLY */}
+                            {feed.items && feed.items.filter((item) => Boolean(item.transfer?.fromSiteName)).length > 0 && (
+                              <div className="space-y-1.5 pt-2 border-t border-teal-200/50">
+                                {feed.items.filter((item) => Boolean(item.transfer?.fromSiteName)).map((item) => (
+                                  <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-white/90 border border-teal-100 text-xs">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-extrabold text-teal-900">
+                                        {item.totalQuantity} {item.unit}
+                                      </span>
+                                      <span className="text-[10px] font-semibold text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded-md flex items-center gap-1 border border-teal-200/60">
+                                        <ArrowRightLeft className="w-3 h-3 text-teal-600" /> Transferred from {item.transfer.fromSiteName}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => setDeletingStockId(item.id)}
+                                        title={`Delete Transferred Stock (Return ${item.totalQuantity} ${item.unit} to ${item.transfer.fromSiteName})`}
+                                        className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ) : null}
 
@@ -536,6 +622,34 @@ export default function Stocking() {
                                 </span>
                               </div>
                             </div>
+
+                            {/* ITEMIZED BREAKDOWN FOR TRANSFERRED MEDICINE STOCK ONLY */}
+                            {medicine.items && medicine.items.filter((item) => Boolean(item.transfer?.fromSiteName)).length > 0 && (
+                              <div className="space-y-1.5 pt-2 border-t border-cyan-200/50">
+                                {medicine.items.filter((item) => Boolean(item.transfer?.fromSiteName)).map((item) => (
+                                  <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-white/90 border border-cyan-100 text-xs">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-extrabold text-cyan-900">
+                                        {item.totalQuantity} {item.unit}
+                                      </span>
+                                      <span className="text-[10px] font-semibold text-cyan-800 bg-cyan-100/80 px-2 py-0.5 rounded-md flex items-center gap-1 border border-cyan-200/60">
+                                        <ArrowRightLeft className="w-3 h-3 text-cyan-600" /> Transferred from {item.transfer.fromSiteName}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => setDeletingStockId(item.id)}
+                                        title={`Delete Transferred Stock (Return ${item.totalQuantity} ${item.unit} to ${item.transfer.fromSiteName})`}
+                                        className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ) : null}
                       </div>
@@ -792,6 +906,17 @@ export default function Stocking() {
         onConfirm={handleConfirmDeleteOtherStockWithPassword}
         title="Delete Other Stock"
         message="Enter your password to confirm deletion of this farm-level stock record."
+      />
+
+      {/* 9. STOCK TRANSFER MODAL */}
+      <StockTransferModal
+        isOpen={Boolean(transferSource)}
+        onClose={() => setTransferSource(null)}
+        onSubmit={handleTransferSubmit}
+        fromSite={transferSource?.site}
+        availableSites={sites}
+        siteStockInfo={transferSource}
+        isSubmitting={isTransferSubmitting}
       />
     </div>
   );

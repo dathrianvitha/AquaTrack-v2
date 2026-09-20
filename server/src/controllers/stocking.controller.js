@@ -7,7 +7,8 @@ import {
     updateStocking,
     deleteStocking,
     updateSiteStockAllocation,
-    deleteSiteStockAllocation
+    deleteSiteStockAllocation,
+    transferStock
 } from "../services/stocking.service.js";
 
 
@@ -317,3 +318,26 @@ export const deleteSiteStockAllocationController = async (req, res) => {
         });
     }
 };
+
+
+/*
+ * Transfer Stock Between Sites
+ */
+export const transferStockController = async (req, res) => {
+    try {
+        const result = await transferStock(
+            req.user.id,
+            req.body
+        );
+        return res.status(200).json({
+            success: true,
+            message: result.message,
+            data: result.data
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};

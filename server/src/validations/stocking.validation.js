@@ -112,3 +112,36 @@ export const allocateStockSchema = z.object({
         .optional()
 
 });
+
+
+/*
+ * Transfer Stock Between Sites
+ */
+export const transferStockSchema = z.object({
+    fromSiteId: z
+        .string()
+        .min(1, "Source site is required"),
+
+    toSiteId: z
+        .string()
+        .min(1, "Destination site is required"),
+
+    category: z.enum(
+        ["FEED", "MEDICINE"],
+        {
+            errorMap: () => ({
+                message: "Stock category must be FEED or MEDICINE"
+            })
+        }
+    ),
+
+    quantity: z
+        .number()
+        .positive("Transfer quantity must be greater than 0")
+}).refine(
+    (data) => data.fromSiteId !== data.toSiteId,
+    {
+        message: "Source site and destination site must be different",
+        path: ["toSiteId"]
+    }
+);
