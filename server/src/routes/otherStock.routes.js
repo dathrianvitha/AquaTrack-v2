@@ -8,12 +8,14 @@ import {
   getOtherStocksController,
   createOtherStockController,
   updateOtherStockController,
-  deleteOtherStockController
+  deleteOtherStockController,
+  transferOtherStockController
 } from "../controllers/otherStock.controller.js";
 
 import {
   createOtherStockSchema,
-  updateOtherStockSchema
+  updateOtherStockSchema,
+  transferOtherStockSchema
 } from "../validations/otherStock.validation.js";
 
 const router = Router();
@@ -31,6 +33,16 @@ router.post(
   auth,
   validate(createOtherStockSchema),
   createOtherStockController
+);
+
+/*
+ * Transfer Other Stock item
+ */
+router.post(
+  "/transfer",
+  auth,
+  validate(transferOtherStockSchema),
+  transferOtherStockController
 );
 
 /*

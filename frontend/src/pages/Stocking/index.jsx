@@ -28,6 +28,7 @@ import { PasswordConfirmationModal } from '../../components/PasswordConfirmation
 import { AddStockForm } from '../../components/AddStockModal';
 import { OtherStockModal } from '../../components/OtherStockModal';
 import { StockTransferModal } from '../../components/StockTransferModal';
+import { OtherStockTransferModal } from '../../components/OtherStockTransferModal';
 
 import { useStocking } from '../../context/StockingContext';
 import { useSites } from '../../context/SiteContext';
@@ -96,6 +97,8 @@ export default function Stocking() {
   const [deletingOtherStockId, setDeletingOtherStockId] = useState(null);
   const [isOtherStockPasswordOpen, setIsOtherStockPasswordOpen] = useState(false);
   const [isOtherStockSubmitting, setIsOtherStockSubmitting] = useState(false);
+  const [otherStockTransferSource, setOtherStockTransferSource] = useState(null);
+  const [isOtherStockTransferSubmitting, setIsOtherStockTransferSubmitting] = useState(false);
 
   // Fetch Other Stock records
   const fetchOtherStocks = async () => {
@@ -132,12 +135,34 @@ export default function Stocking() {
     }
   };
 
+  const handleOtherStockTransferSubmit = async (transferData) => {
+    setIsOtherStockTransferSubmitting(true);
+    try {
+      const res = await otherStockService.transferOtherStock(transferData);
+      setOtherStockTransferSource(null);
+      setSuccessMessage(res?.message || 'Other stock transferred successfully.');
+      setTimeout(() => setSuccessMessage(''), 5000);
+      await fetchOtherStocks();
+    } catch (err) {
+      throw err;
+    } finally {
+      setIsOtherStockTransferSubmitting(false);
+    }
+  };
+
   const handleConfirmDeleteOtherStockWithPassword = async (password) => {
     if (deletingOtherStockId) {
-      await otherStockService.deleteOtherStock(deletingOtherStockId, password);
-      setIsOtherStockPasswordOpen(false);
-      setDeletingOtherStockId(null);
-      await fetchOtherStocks();
+      try {
+        const res = await otherStockService.deleteOtherStock(deletingOtherStockId, password);
+        setIsOtherStockPasswordOpen(false);
+        setDeletingOtherStockId(null);
+        setSuccessMessage(res?.message || 'Other stock record deleted successfully.');
+        setTimeout(() => setSuccessMessage(''), 6000);
+        await fetchOtherStocks();
+      } catch (err) {
+        setIsOtherStockPasswordOpen(false);
+        setDeletingOtherStockId(null);
+      }
     }
   };
 
@@ -680,53 +705,88 @@ export default function Stocking() {
         {otherStocks.length === 0 ? (
           <Card padding="relaxed" className="border-border/80 text-center py-6">
             <div className="text-xs text-text-secondary">
-              No farm-level equipment or parts added yet. Click <span className="font-semibold text-text-primary">[ + Other Stock ]</span> to add items.
+              No farm or site-level equipment or parts added yet. Click <span className="font-semibold text-text-primary">[ + Other Stock ]</span> to add items.
             </div>
           </Card>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {otherStocks.map((item) => (
-              <Card key={item.id} padding="normal" className="border-border/80 bg-surface shadow-xs flex flex-col justify-between">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-sm text-text-primary">{item.category}</h4>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingOtherStock(item);
-                          setIsOtherStockModalOpen(true);
-                        }}
-                        title="Edit Other Stock"
-                        className="p-1 text-text-secondary hover:text-primary rounded hover:bg-primary-light transition-colors cursor-pointer"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeletingOtherStockId(item.id);
-                          setIsOtherStockPasswordOpen(true);
-                        }}
-                        title="Delete Other Stock"
-                        className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+            {otherStocks.map((item) => {
+              const itemSite = item.site || sites.find((s) => String(s.id) === String(item.siteId)) || sites[0];
+              const isTransferred = Boolean(item.transfer?.fromSite?.siteName);
+
+              return (
+                <Card key={item.id} padding="normal" className="border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h4 className="font-bold text-sm text-text-primary">{item.category}</h4>
+                        {itemSite && (
+                          <span className="text-[10px] font-semibold text-text-secondary flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3 text-primary shrink-0" /> {itemSite.siteName}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {itemSite && (
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            onClick={() => setOtherStockTransferSource({ site: itemSite, initialCategory: item.category })}
+                            icon={<ArrowRightLeft className="w-3 h-3" />}
+                            className="font-semibold text-[11px] py-1 px-2 border-primary/30 text-primary hover:bg-primary-light/50"
+                            title={`Transfer ${item.category} from ${itemSite.siteName}`}
+                          >
+                            Transfer
+                          </Button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingOtherStock(item);
+                            setIsOtherStockModalOpen(true);
+                          }}
+                          title="Edit Other Stock"
+                          className="p-1 text-text-secondary hover:text-primary rounded hover:bg-primary-light transition-colors cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeletingOtherStockId(item.id);
+                            setIsOtherStockPasswordOpen(true);
+                          }}
+                          title={isTransferred ? `Delete Transferred Stock (Return ${item.count} ${item.category} to ${item.transfer.fromSite?.siteName})` : "Delete Other Stock"}
+                          className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-background border border-border/50 text-center">
-                    <span className="text-[10px] uppercase font-bold text-text-secondary block">Count</span>
-                    <span className="text-lg font-extrabold text-primary mt-0.5 block">{item.count}</span>
-                  </div>
-                  {item.notes && (
-                    <div className="px-2.5 py-1.5 rounded-lg bg-background/80 border border-border/40 text-xs text-text-secondary">
-                      <span className="font-semibold text-text-primary">Notes:</span> {item.notes}
+
+                    <div className="p-3 rounded-lg bg-background border border-border/50 text-center">
+                      <span className="text-[10px] uppercase font-bold text-text-secondary block">Count</span>
+                      <span className="text-lg font-extrabold text-primary mt-0.5 block">{item.count}</span>
                     </div>
-                  )}
-                </div>
-              </Card>
-            ))}
+
+                    {isTransferred && (
+                      <div className="p-2 rounded-lg bg-teal-50/80 border border-teal-200/60 text-xs">
+                        <span className="text-[10px] font-semibold text-teal-800 flex items-center gap-1">
+                          <ArrowRightLeft className="w-3 h-3 text-teal-600 shrink-0" />
+                          Transferred from <span className="font-bold">{item.transfer.fromSite?.siteName}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {item.notes && (
+                      <div className="px-2.5 py-1.5 rounded-lg bg-background/80 border border-border/40 text-xs text-text-secondary">
+                        <span className="font-semibold text-text-primary">Notes:</span> {item.notes}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>
@@ -893,6 +953,7 @@ export default function Stocking() {
         }}
         onSubmit={handleSaveOtherStock}
         initialData={editingOtherStock}
+        sites={sites}
         isSubmitting={isOtherStockSubmitting}
       />
 
@@ -905,7 +966,7 @@ export default function Stocking() {
         }}
         onConfirm={handleConfirmDeleteOtherStockWithPassword}
         title="Delete Other Stock"
-        message="Enter your password to confirm deletion of this farm-level stock record."
+        message="Enter your password to confirm deletion of this stock record."
       />
 
       {/* 9. STOCK TRANSFER MODAL */}
@@ -917,6 +978,18 @@ export default function Stocking() {
         availableSites={sites}
         siteStockInfo={transferSource}
         isSubmitting={isTransferSubmitting}
+      />
+
+      {/* 10. OTHER STOCK TRANSFER MODAL */}
+      <OtherStockTransferModal
+        isOpen={Boolean(otherStockTransferSource)}
+        onClose={() => setOtherStockTransferSource(null)}
+        onSubmit={handleOtherStockTransferSubmit}
+        fromSite={otherStockTransferSource?.site}
+        availableSites={sites}
+        siteOtherStockList={otherStocks}
+        initialCategory={otherStockTransferSource?.initialCategory}
+        isSubmitting={isOtherStockTransferSubmitting}
       />
     </div>
   );

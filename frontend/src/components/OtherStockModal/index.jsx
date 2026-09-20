@@ -21,9 +21,11 @@ export const OtherStockModal = ({
   onClose,
   onSubmit,
   initialData = null,
+  sites = [],
   isSubmitting = false
 }) => {
   const [category, setCategory] = useState('Motors');
+  const [siteId, setSiteId] = useState('');
   const [count, setCount] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
@@ -32,16 +34,18 @@ export const OtherStockModal = ({
     if (isOpen) {
       if (initialData) {
         setCategory(initialData.category || 'Motors');
+        setSiteId(initialData.siteId || initialData.site?.id || (sites.length > 0 ? String(sites[0].id) : ''));
         setCount(String(initialData.count ?? ''));
         setNotes(initialData.notes || '');
       } else {
         setCategory('Motors');
+        setSiteId(sites.length > 0 ? String(sites[0].id) : '');
         setCount('');
         setNotes('');
       }
       setError('');
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, sites]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -61,6 +65,7 @@ export const OtherStockModal = ({
     try {
       await onSubmit({
         category,
+        siteId: siteId || null,
         count: numericCount,
         notes: notes.trim()
       });
@@ -76,7 +81,7 @@ export const OtherStockModal = ({
       isOpen={isOpen}
       onClose={onClose}
       title={isEdit ? 'Edit Other Stock' : 'Add Other Stock'}
-      description="Farm-level equipment and spare parts inventory."
+      description="Farm and site-level equipment and spare parts inventory."
       size="md"
     >
       <form onSubmit={handleSubmit} className="space-y-4 pt-2">
@@ -85,6 +90,16 @@ export const OtherStockModal = ({
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
+        )}
+
+        {sites.length > 0 && (
+          <Select
+            label="Site"
+            options={sites.map((s) => ({ value: String(s.id), label: s.siteName }))}
+            value={siteId}
+            onChange={(e) => setSiteId(e.target.value)}
+            disabled={isSubmitting}
+          />
         )}
 
         <Select

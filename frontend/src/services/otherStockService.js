@@ -35,6 +35,16 @@ export const updateOtherStock = async (id, data) => {
   }
 };
 
+// Transfer Other Stock between sites (POST /api/other-stock/transfer)
+export const transferOtherStock = async (data) => {
+  try {
+    const response = await api.post('/other-stock/transfer', data);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to transfer other stock');
+  }
+};
+
 // Delete Other Stock item with password verification (DELETE /api/other-stock/:id)
 export const deleteOtherStock = async (id, password) => {
   try {
@@ -52,6 +62,7 @@ export const otherStockService = {
   getOtherStocks,
   createOtherStock,
   updateOtherStock,
+  transferOtherStock,
   deleteOtherStock
 };
 

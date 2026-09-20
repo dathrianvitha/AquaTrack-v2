@@ -20,6 +20,8 @@ export const createOtherStockSchema = z.object({
     .int("Count must be a whole number")
     .positive("Count must be greater than 0"),
 
+  siteId: z.string().optional(),
+
   notes: z.string().optional()
 });
 
@@ -43,5 +45,35 @@ export const updateOtherStockSchema = z.object({
     .positive("Count must be greater than 0")
     .optional(),
 
+  siteId: z.string().optional(),
+
   notes: z.string().optional()
 });
+
+/*
+ * Transfer Other Stock Validation Schema
+ */
+export const transferOtherStockSchema = z.object({
+  fromSiteId: z.string({
+    required_error: "From Site is required"
+  }).min(1, "From Site is required"),
+
+  toSiteId: z.string({
+    required_error: "Destination site is required"
+  }).min(1, "Destination site is required"),
+
+  category: z.enum(["Motors", "Aerators", "Spare Parts", "Generators"], {
+    errorMap: () => ({
+      message: "Category must be one of: Motors, Aerators, Spare Parts, Generators"
+    })
+  }),
+
+  count: z.coerce
+    .number({
+      invalid_type_error: "Transfer quantity must be a number",
+      required_error: "Transfer quantity is required"
+    })
+    .int("Transfer quantity must be a whole number")
+    .positive("Transfer quantity must be greater than 0")
+});
+
