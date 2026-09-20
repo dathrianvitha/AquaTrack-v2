@@ -28,6 +28,7 @@ import { Modal } from '../../components/Modal';
 import { EmptyState } from '../../components/EmptyState';
 import dashboardService from '../../services/dashboardService';
 import { useAuth } from '../../context/AuthContext';
+import { useSites } from '../../context/SiteContext';
 import { useTanks } from '../../context/TankContext';
 import { useCrops } from '../../context/CropContext';
 import { usePondLeases } from '../../context/PondLeaseContext';
@@ -40,6 +41,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   // Contexts for real-time consistent data fetching & reactive updates
+  const { sites = [], loading: sitesLoading } = useSites();
   const { tanks = [], loading: tanksLoading } = useTanks();
   const { crops = [], loading: cropsLoading } = useCrops();
   const { leases = [], loading: leasesLoading } = usePondLeases();
@@ -93,13 +95,27 @@ export default function Dashboard() {
   const activeCropsCount = activeCropsList.length > 0 ? activeCropsList.length : (stats.activeCrops ?? 0);
   const completedCropsCount = completedCropsList.length > 0 ? completedCropsList.length : (stats.completedCrops ?? 0);
 
+  // Calculate dynamic cumulative tank/pond area for TOTAL TANKS / PONDS card
+  const tanksCardDescription = useMemo(() => {
+    const totalTankArea = (tanks || []).reduce(
+      (sum, tank) => sum + (parseFloat(tank.area) || 0),
+      0
+    );
+    const areaStr = Number.isInteger(totalTankArea)
+      ? String(totalTankArea)
+      : totalTankArea.toFixed(1);
+    const count = totalTanksCount;
+    const tankLabel = count === 1 ? 'Tank' : 'Tanks';
+    return `${count} ${tankLabel} (${areaStr} Acres)`;
+  }, [tanks, totalTanksCount]);
+
   // SIMPLIFIED 3 CARDS ONLY (Total Tanks / Ponds, Active Crops, Completed Batches)
   const farmSummaryCards = [
     {
       id: 'tanks',
-      title: 'TOTAL TANKS / PONDS',
+      title: 'TOTAL TANKS',
       value: totalTanksCount,
-      description: farm.farmName ? `${farm.farmName} (${farm.totalAcres || 0} Acres)` : 'Configured farm ponds',
+      description: tanksCardDescription,
       icon: Waves,
       bgColor: 'bg-teal-50 text-teal-700 border-teal-200',
       action: () => setIsTankReviewOpen(true),
