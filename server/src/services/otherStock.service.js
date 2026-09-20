@@ -19,7 +19,13 @@ export const getOtherStocksService = async (userId) => {
           location: true
         }
       },
+      repairLogs: {
+        orderBy: {
+          createdAt: "desc"
+        }
+      },
       transfer: {
+
         include: {
           fromSite: {
             select: {
@@ -186,7 +192,7 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
       const newCount = stockRecord.count - deduct;
       remainingToDeduct -= deduct;
 
-      if (newCount === 0 && !stockRecord.transferId) {
+      if (newCount === 0 && (!stockRecord.underRepair || stockRecord.underRepair === 0) && !stockRecord.transferId) {
         // Delete empty direct stock record
         await tx.otherStock.delete({ where: { id: stockRecord.id } });
       } else {
@@ -239,6 +245,145 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
 };
 
 /*
+ * Move Other Stock to repair
+ */
+export const sendToRepairService = async (userId, id, quantity, notes) => {
+  const farm = await getUserFarm(userId);
+
+  const repairQty = parseInt(quantity, 10);
+  if (isNaN(repairQty) || repairQty <= 0) {
+    throw new Error("Quantity to send for repair must be a positive whole number.");
+  }
+
+  const existing = await prisma.otherStock.findFirst({
+    where: {
+      id,
+      farmId: farm.id
+    }
+  });
+
+  if (!existing) {
+    throw new Error("Other Stock record not found or access denied.");
+  }
+
+  if (existing.count < repairQty) {
+    throw new Error(
+      `Cannot send ${repairQty} ${existing.category} for repair. Only ${existing.count} available.`
+    );
+  }
+
+  const cleanNotes = notes ? String(notes).trim() : null;
+
+  return prisma.$transaction(async (tx) => {
+    // Create repair log entry
+    await tx.otherStockRepairLog.create({
+      data: {
+        actionType: "REPAIR",
+        quantity: repairQty,
+        notes: cleanNotes,
+        otherStockId: id
+      }
+    });
+
+    const updated = await tx.otherStock.update({
+      where: { id },
+      data: {
+        count: existing.count - repairQty,
+        underRepair: (existing.underRepair || 0) + repairQty,
+        ...(cleanNotes ? { notes: cleanNotes } : {})
+      },
+      include: {
+        site: { select: { id: true, siteName: true, location: true } },
+        repairLogs: { orderBy: { createdAt: "desc" } },
+        transfer: {
+          include: {
+            fromSite: { select: { id: true, siteName: true } },
+            toSite: { select: { id: true, siteName: true } }
+          }
+        }
+      }
+    });
+
+    return {
+      success: true,
+      message: `Sent ${repairQty} ${existing.category} for repair.`,
+      data: updated
+    };
+  });
+};
+
+/*
+ * Return Other Stock from repair
+ */
+export const returnFromRepairService = async (userId, id, quantity, notes) => {
+  const farm = await getUserFarm(userId);
+
+  const returnQty = parseInt(quantity, 10);
+  if (isNaN(returnQty) || returnQty <= 0) {
+    throw new Error("Quantity returned must be a positive whole number.");
+  }
+
+  const existing = await prisma.otherStock.findFirst({
+    where: {
+      id,
+      farmId: farm.id
+    }
+  });
+
+  if (!existing) {
+    throw new Error("Other Stock record not found or access denied.");
+  }
+
+  const currentUnderRepair = existing.underRepair || 0;
+  if (currentUnderRepair < returnQty) {
+    throw new Error(
+      `Cannot return ${returnQty} ${existing.category} from repair. Only ${currentUnderRepair} currently under repair.`
+    );
+  }
+
+  const cleanNotes = notes ? String(notes).trim() : null;
+
+  return prisma.$transaction(async (tx) => {
+    // Create return repair log entry
+    await tx.otherStockRepairLog.create({
+      data: {
+        actionType: "RETURN",
+        quantity: returnQty,
+        notes: cleanNotes,
+        otherStockId: id
+      }
+    });
+
+    const updated = await tx.otherStock.update({
+      where: { id },
+      data: {
+        count: existing.count + returnQty,
+        underRepair: currentUnderRepair - returnQty,
+        ...(cleanNotes ? { notes: cleanNotes } : {})
+      },
+      include: {
+        site: { select: { id: true, siteName: true, location: true } },
+        repairLogs: { orderBy: { createdAt: "desc" } },
+        transfer: {
+          include: {
+            fromSite: { select: { id: true, siteName: true } },
+            toSite: { select: { id: true, siteName: true } }
+          }
+        }
+      }
+    });
+
+    return {
+      success: true,
+      message: `Marked ${returnQty} ${existing.category} as returned from repair.`,
+      data: updated
+    };
+  });
+};
+
+
+
+/*
  * Delete an Other Stock record (Reverses transfer if stock was received via transfer)
  */
 export const deleteOtherStockService = async (userId, id) => {
@@ -256,6 +401,12 @@ export const deleteOtherStockService = async (userId, id) => {
 
   if (!existing) {
     throw new Error("Other Stock record not found or access denied.");
+  }
+
+  if ((existing.underRepair || 0) > 0) {
+    throw new Error(
+      `Cannot delete stock record while ${existing.underRepair} ${existing.category} are currently under repair. Please return items from repair first.`
+    );
   }
 
   // If this stock record was received via a transfer, reverse it automatically
@@ -319,4 +470,68 @@ export const deleteOtherStockService = async (userId, id) => {
     message: "Other stock deleted successfully."
   };
 };
+
+/*
+ * Delete an Other Stock Repair Log entry
+ */
+export const deleteOtherStockRepairLogService = async (userId, logId) => {
+  const farm = await getUserFarm(userId);
+
+  const repairLog = await prisma.otherStockRepairLog.findUnique({
+    where: { id: logId },
+    include: {
+      otherStock: true
+    }
+  });
+
+  if (!repairLog || repairLog.otherStock.farmId !== farm.id) {
+    throw new Error("Repair log entry not found or access denied.");
+  }
+
+  const stock = repairLog.otherStock;
+  const qty = repairLog.quantity;
+
+  return prisma.$transaction(async (tx) => {
+    let newCount = stock.count;
+    let newUnderRepair = stock.underRepair || 0;
+
+    if (repairLog.actionType === "REPAIR") {
+      newUnderRepair = Math.max(0, newUnderRepair - qty);
+      newCount = newCount + qty;
+    } else if (repairLog.actionType === "RETURN") {
+      newCount = Math.max(0, newCount - qty);
+      newUnderRepair = newUnderRepair + qty;
+    }
+
+    await tx.otherStockRepairLog.delete({
+      where: { id: logId }
+    });
+
+    const updatedStock = await tx.otherStock.update({
+      where: { id: stock.id },
+      data: {
+        count: newCount,
+        underRepair: newUnderRepair
+      },
+      include: {
+        site: { select: { id: true, siteName: true, location: true } },
+        repairLogs: { orderBy: { createdAt: "desc" } },
+        transfer: {
+          include: {
+            fromSite: { select: { id: true, siteName: true } },
+            toSite: { select: { id: true, siteName: true } }
+          }
+        }
+      }
+    });
+
+    return {
+      success: true,
+      message: "Repair log entry deleted successfully.",
+      data: updatedStock
+    };
+  });
+};
+
+
 

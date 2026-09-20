@@ -330,10 +330,11 @@ model PondLease {
 }
 
 model OtherStock {
-  id        String   @id @default(cuid())
-  category  String
-  count     Int
-  notes     String?
+  id          String   @id @default(cuid())
+  category    String
+  count       Int
+  underRepair Int      @default(0)
+  notes       String?
 
   siteId String?
   site   Site?   @relation(fields: [siteId], references: [id], onDelete: Cascade)
@@ -344,9 +345,26 @@ model OtherStock {
   transferId String?             @unique
   transfer   OtherStockTransfer? @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
+  repairLogs OtherStockRepairLog[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model OtherStockRepairLog {
+  id           String   @id @default(cuid())
+  actionType   String
+  quantity     Int
+  notes        String?
+  actionDate   DateTime @default(now())
+
+  otherStockId String
+  otherStock   OtherStock @relation(fields: [otherStockId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 
 model OtherStockTransfer {
   id       String @id @default(cuid())

@@ -77,3 +77,35 @@ export const transferOtherStockSchema = z.object({
     .positive("Transfer quantity must be greater than 0")
 });
 
+/*
+ * Send To Repair Validation Schema
+ */
+export const sendToRepairSchema = z.object({
+  quantity: z.coerce
+    .number({
+      invalid_type_error: "Quantity must be a number",
+      required_error: "Quantity is required"
+    })
+    .int("Quantity must be a whole number")
+    .positive("Quantity must be greater than 0"),
+
+  notes: z.string().optional()
+});
+
+/*
+ * Return From Repair Validation Schema
+ */
+export const returnFromRepairSchema = z.object({
+  quantity: z.coerce
+    .number({
+      invalid_type_error: "Quantity must be a number",
+      required_error: "Quantity is required"
+    })
+    .int("Quantity must be a whole number")
+    .positive("Quantity must be greater than 0"),
+
+  notes: z.string().optional()
+});
+
+
+

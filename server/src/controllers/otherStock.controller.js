@@ -3,7 +3,10 @@ import {
   createOtherStockService,
   updateOtherStockService,
   deleteOtherStockService,
-  transferOtherStockService
+  transferOtherStockService,
+  sendToRepairService,
+  returnFromRepairService,
+  deleteOtherStockRepairLogService
 } from "../services/otherStock.service.js";
 
 /*
@@ -90,6 +93,76 @@ export const transferOtherStockController = async (req, res) => {
 };
 
 /*
+ * Send Other Stock to Repair
+ */
+export const sendToRepairController = async (req, res) => {
+  try {
+    const result = await sendToRepairService(
+      req.user.id,
+      req.params.id,
+      req.body.quantity,
+      req.body.notes
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.data
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
+ * Return Other Stock from Repair
+ */
+export const returnFromRepairController = async (req, res) => {
+  try {
+    const result = await returnFromRepairService(
+      req.user.id,
+      req.params.id,
+      req.body.quantity,
+      req.body.notes
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.data
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
+ * Delete Other Stock Repair Log entry
+ */
+export const deleteOtherStockRepairLogController = async (req, res) => {
+  try {
+    const result = await deleteOtherStockRepairLogService(req.user.id, req.params.logId);
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.data
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
  * Delete Other Stock
  */
 export const deleteOtherStockController = async (req, res) => {
@@ -107,3 +180,5 @@ export const deleteOtherStockController = async (req, res) => {
     });
   }
 };
+
+

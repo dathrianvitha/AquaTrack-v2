@@ -12,7 +12,8 @@ import {
   Eye,
   Wrench,
   ArrowRightLeft,
-  CheckCircle2
+  CheckCircle2,
+  RotateCcw
 } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -29,6 +30,8 @@ import { AddStockForm } from '../../components/AddStockModal';
 import { OtherStockModal } from '../../components/OtherStockModal';
 import { StockTransferModal } from '../../components/StockTransferModal';
 import { OtherStockTransferModal } from '../../components/OtherStockTransferModal';
+import { OtherStockRepairModal } from '../../components/OtherStockRepairModal';
+
 
 import { useStocking } from '../../context/StockingContext';
 import { useSites } from '../../context/SiteContext';
@@ -94,11 +97,75 @@ export default function Stocking() {
   const [loadingOtherStock, setLoadingOtherStock] = useState(false);
   const [isOtherStockModalOpen, setIsOtherStockModalOpen] = useState(false);
   const [editingOtherStock, setEditingOtherStock] = useState(null);
+  const [viewingOtherStock, setViewingOtherStock] = useState(null);
   const [deletingOtherStockId, setDeletingOtherStockId] = useState(null);
   const [isOtherStockPasswordOpen, setIsOtherStockPasswordOpen] = useState(false);
   const [isOtherStockSubmitting, setIsOtherStockSubmitting] = useState(false);
   const [otherStockTransferSource, setOtherStockTransferSource] = useState(null);
   const [isOtherStockTransferSubmitting, setIsOtherStockTransferSubmitting] = useState(false);
+
+
+  // Other Stock Repair States
+  const [repairModalState, setRepairModalState] = useState({
+    isOpen: false,
+    mode: 'SEND', // 'SEND' or 'RETURN'
+    item: null
+  });
+  const [isRepairSubmitting, setIsRepairSubmitting] = useState(false);
+  const [deletingRepairLogId, setDeletingRepairLogId] = useState(null);
+
+  const handleOpenRepairModal = (item, mode = 'SEND') => {
+    setRepairModalState({
+      isOpen: true,
+      mode,
+      item
+    });
+  };
+
+  const handleRepairSubmit = async ({ quantity, notes }) => {
+    const { mode, item } = repairModalState;
+    if (!item) return;
+
+    setIsRepairSubmitting(true);
+    try {
+      let res;
+      if (mode === 'SEND') {
+        res = await otherStockService.sendToRepair(item.id, quantity, notes);
+      } else {
+        res = await otherStockService.returnFromRepair(item.id, quantity, notes);
+      }
+      setRepairModalState({ isOpen: false, mode: 'SEND', item: null });
+      setSuccessMessage(res?.message || 'Stock repair status updated successfully.');
+      setTimeout(() => setSuccessMessage(''), 5000);
+      await fetchOtherStocks();
+    } catch (err) {
+      throw err;
+    } finally {
+      setIsRepairSubmitting(false);
+    }
+  };
+
+  const handleDeleteRepairLogSubmit = async () => {
+    if (!deletingRepairLogId) return;
+
+    try {
+      const res = await otherStockService.deleteRepairLog(deletingRepairLogId);
+      setDeletingRepairLogId(null);
+      setSuccessMessage(res?.message || 'Repair log entry deleted successfully.');
+      setTimeout(() => setSuccessMessage(''), 5000);
+
+      const updatedList = await fetchOtherStocks();
+      if (viewingOtherStock) {
+        const updatedItem = (updatedList || []).find((s) => String(s.id) === String(viewingOtherStock.id)) || res?.data;
+        setViewingOtherStock(updatedItem || null);
+      }
+    } catch (err) {
+      setDeletingRepairLogId(null);
+    }
+  };
+
+
+
 
   // Fetch Other Stock records
   const fetchOtherStocks = async () => {
@@ -107,6 +174,7 @@ export default function Stocking() {
       const res = await otherStockService.getOtherStocks();
       if (res?.success && Array.isArray(res.data)) {
         setOtherStocks(res.data);
+        return res.data;
       }
     } catch (err) {
       console.error('Failed to fetch other stock records', err);
@@ -114,6 +182,7 @@ export default function Stocking() {
       setLoadingOtherStock(false);
     }
   };
+
 
   useEffect(() => {
     fetchOtherStocks();
@@ -764,9 +833,79 @@ export default function Stocking() {
                       </div>
                     </div>
 
-                    <div className="p-3 rounded-lg bg-background border border-border/50 text-center">
-                      <span className="text-[10px] uppercase font-bold text-text-secondary block">Count</span>
-                      <span className="text-lg font-extrabold text-primary mt-0.5 block">{item.count}</span>
+                    <div className="space-y-1.5 text-center text-xs">
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <div className="p-2 rounded-lg bg-background border border-border/50">
+                          <span className="text-[9px] uppercase font-bold text-text-secondary block">Total</span>
+                          <span className="text-sm font-extrabold text-text-primary mt-0.5 block">
+                            {item.count + (item.underRepair || 0)}
+                          </span>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-emerald-50/70 border border-emerald-200/60">
+                          <span className="text-[9px] uppercase font-bold text-emerald-800 block">Available</span>
+                          <span className="text-sm font-extrabold text-emerald-700 mt-0.5 block">
+                            {item.count}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-200/60 w-full relative">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] uppercase font-bold text-amber-800">Under Repair</span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setViewingOtherStock(item)}
+                              title="View Repair Logs"
+                              className="p-1 text-amber-800 hover:text-amber-950 rounded hover:bg-amber-100/80 transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            {Array.isArray(item.repairLogs) && item.repairLogs.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setViewingOtherStock(item)}
+                                title="Delete Repair Log Entry"
+                                className="p-1 text-amber-800 hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-sm font-extrabold text-amber-700 mt-0.5 block text-center">
+                          {item.underRepair || 0}
+                        </span>
+                      </div>
+                    </div>
+
+
+                    <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-border/40">
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={() => handleOpenRepairModal(item, 'SEND')}
+                        icon={<Wrench className="w-3 h-3" />}
+                        className="font-semibold text-[11px] py-1 px-2 border-amber-300 text-amber-800 hover:bg-amber-50"
+                        title="Send items for repair"
+                        disabled={item.count <= 0}
+                      >
+                        Repair
+                      </Button>
+
+                      {(item.underRepair || 0) > 0 && (
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={() => handleOpenRepairModal(item, 'RETURN')}
+                          icon={<RotateCcw className="w-3 h-3" />}
+                          className="font-semibold text-[11px] py-1 px-2 border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                          title="Return items from repair"
+                        >
+                          Return from Repair
+                        </Button>
+                      )}
                     </div>
 
                     {isTransferred && (
@@ -778,11 +917,6 @@ export default function Stocking() {
                       </div>
                     )}
 
-                    {item.notes && (
-                      <div className="px-2.5 py-1.5 rounded-lg bg-background/80 border border-border/40 text-xs text-text-secondary">
-                        <span className="font-semibold text-text-primary">Notes:</span> {item.notes}
-                      </div>
-                    )}
                   </div>
                 </Card>
               );
@@ -991,6 +1125,153 @@ export default function Stocking() {
         initialCategory={otherStockTransferSource?.initialCategory}
         isSubmitting={isOtherStockTransferSubmitting}
       />
+
+      {/* 11. OTHER STOCK REPAIR MODAL */}
+      <OtherStockRepairModal
+        isOpen={repairModalState.isOpen}
+        onClose={() => setRepairModalState({ isOpen: false, mode: 'SEND', item: null })}
+        onSubmit={handleRepairSubmit}
+        mode={repairModalState.mode}
+        item={repairModalState.item}
+        isSubmitting={isRepairSubmitting}
+      />
+
+      {/* 12. OTHER STOCK DETAILS & HISTORY LOG MODAL */}
+      <Modal
+        isOpen={Boolean(viewingOtherStock)}
+        onClose={() => setViewingOtherStock(null)}
+        title={`${viewingOtherStock?.category || 'Other Stock'} History & Details`}
+        description={`Repair history and inventory details for ${viewingOtherStock?.site?.siteName || viewingOtherStock?.siteName || 'Site'}`}
+        size="md"
+      >
+        {viewingOtherStock && (
+          <div className="space-y-4 pt-2">
+            <div className="p-4 rounded-xl bg-primary-light/30 border border-primary/20 space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="bg-surface p-3 rounded-lg border border-border/50">
+                  <span className="text-[10px] text-text-secondary uppercase font-semibold block">Site</span>
+                  <span className="text-sm font-bold text-text-primary mt-0.5 block">{viewingOtherStock.site?.siteName || viewingOtherStock.siteName || 'N/A'}</span>
+                </div>
+                <div className="bg-surface p-3 rounded-lg border border-border/50">
+                  <span className="text-[10px] text-text-secondary uppercase font-semibold block">Category</span>
+                  <span className="text-sm font-bold text-text-primary mt-0.5 block">{viewingOtherStock.category}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="p-2.5 rounded-xl bg-background border border-border/50">
+                <span className="text-[10px] uppercase font-bold text-text-secondary block">Total</span>
+                <span className="text-base font-extrabold text-text-primary mt-0.5 block">
+                  {viewingOtherStock.count + (viewingOtherStock.underRepair || 0)}
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
+                <span className="text-[10px] uppercase font-bold text-emerald-800 block">Available</span>
+                <span className="text-base font-extrabold text-emerald-700 mt-0.5 block">
+                  {viewingOtherStock.count}
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-100">
+                <span className="text-[10px] uppercase font-bold text-amber-800 block">Under Repair</span>
+                <span className="text-base font-extrabold text-amber-700 mt-0.5 block">
+                  {viewingOtherStock.underRepair || 0}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2 border-t border-border">
+              <h4 className="font-bold text-xs text-text-primary flex items-center gap-1.5 uppercase tracking-wider">
+                <Wrench className="w-3.5 h-3.5 text-primary" /> Stock History & Repair Log
+              </h4>
+
+              {Array.isArray(viewingOtherStock.repairLogs) && viewingOtherStock.repairLogs.length > 0 ? (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {viewingOtherStock.repairLogs.map((log) => {
+                    const isSend = log.actionType === 'REPAIR';
+                    const dateStr = log.createdAt
+                      ? new Date(log.createdAt).toLocaleDateString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric'
+                        })
+                      : '';
+
+                    return (
+                      <div
+                        key={log.id}
+                        className={`p-3 rounded-xl border text-xs space-y-1.5 ${
+                          isSend
+                            ? 'bg-amber-50/50 border-amber-200/60'
+                            : 'bg-emerald-50/50 border-emerald-200/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-semibold text-text-secondary">{dateStr}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                                isSend
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              }`}
+                            >
+                              {isSend ? 'Sent for Repair' : 'Returned from Repair'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingRepairLogId(log.id)}
+                              title="Delete this repair log entry"
+                              className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+
+                        <div className="font-bold text-text-primary">
+                          Quantity: {log.quantity}
+                        </div>
+
+                        {log.notes && (
+                          <div className="pt-1 text-text-secondary text-[11px] border-t border-border/40">
+                            <span className="font-semibold text-text-primary">Notes:</span> {log.notes}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-4 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
+                  No repair history recorded yet.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-border">
+              <Button variant="outline" size="sm" onClick={() => setViewingOtherStock(null)}>
+                Close Details
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* 13. DELETE REPAIR LOG CONFIRMATION DIALOG */}
+      <ConfirmationDialog
+        isOpen={Boolean(deletingRepairLogId)}
+        onClose={() => setDeletingRepairLogId(null)}
+        onConfirm={handleDeleteRepairLogSubmit}
+        title="Delete Repair Log Entry"
+        message="Are you sure you want to delete this repair log entry? This will adjust Under Repair and Available stock counts accordingly."
+        confirmText="Delete Repair Log"
+        type="danger"
+      />
     </div>
   );
 }
+
+
+
