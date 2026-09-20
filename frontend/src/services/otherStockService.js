@@ -89,6 +89,16 @@ export const deleteRepairLog = async (logId) => {
   }
 };
 
+// Get Other Stock Transfer Logs (GET /api/other-stock/transfers)
+export const getTransferLogs = async () => {
+  try {
+    const response = await api.get(`/other-stock/transfers?_t=${Date.now()}`);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to fetch other stock transfer logs');
+  }
+};
+
 export const otherStockService = {
   getOtherStocks,
   createOtherStock,
@@ -97,7 +107,8 @@ export const otherStockService = {
   deleteOtherStock,
   sendToRepair,
   returnFromRepair,
-  deleteRepairLog
+  deleteRepairLog,
+  getTransferLogs,
 };
 
 export default otherStockService;

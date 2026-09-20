@@ -13,7 +13,8 @@ import {
     deleteStockingController,
     updateSiteStockAllocationController,
     deleteSiteStockAllocationController,
-    transferStockController
+    transferStockController,
+    getStockTransfersController
 } from "../controllers/stocking.controller.js";
 
 import validate from "../middleware/validate.middleware.js";
@@ -110,6 +111,15 @@ router.get(
     getSiteStockAllocationsController
 );
 
+
+/*
+ * Get Stock Transfer Logs
+ */
+router.get(
+    "/transfers",
+    auth,
+    getStockTransfersController
+);
 
 /*
  * Transfer Stock Between Sites

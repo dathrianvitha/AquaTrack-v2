@@ -13,7 +13,10 @@ import {
   Wrench,
   ArrowRightLeft,
   CheckCircle2,
-  RotateCcw
+  RotateCcw,
+  History,
+  FileText,
+  ArrowRight
 } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -39,6 +42,7 @@ import { useTanks } from '../../context/TankContext';
 import { useFeed } from '../../context/FeedContext';
 import { useMedicine } from '../../context/MedicineContext';
 import { subscribeToSyncBus } from '../../utils/syncBus';
+import { stockingService } from '../../services/stockingService';
 import { otherStockService } from '../../services/otherStockService';
 
 export default function Stocking() {
@@ -103,6 +107,63 @@ export default function Stocking() {
   const [isOtherStockSubmitting, setIsOtherStockSubmitting] = useState(false);
   const [otherStockTransferSource, setOtherStockTransferSource] = useState(null);
   const [isOtherStockTransferSubmitting, setIsOtherStockTransferSubmitting] = useState(false);
+
+  // Transfer Log Modal States
+  const [isTransferLogOpen, setIsTransferLogOpen] = useState(false);
+  const [transferLogs, setTransferLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const fetchTransferLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const [stRes, ostRes] = await Promise.all([
+        stockingService.getTransferLogs().catch(() => ({ data: [] })),
+        otherStockService.getTransferLogs().catch(() => ({ data: [] }))
+      ]);
+
+      const stData = Array.isArray(stRes.data) ? stRes.data : [];
+      const ostData = Array.isArray(ostRes.data) ? ostRes.data : [];
+
+      const normalizedSt = stData.map((s) => ({
+        id: `st_${s.id}`,
+        rawId: s.id,
+        type: 'STOCK',
+        category: s.category,
+        quantity: s.quantity,
+        unit: s.unit || (s.category === 'MEDICINE' ? 'L' : 'kg'),
+        fromSiteName: s.fromSite?.siteName || 'Source Site',
+        toSiteName: s.toSite?.siteName || 'Destination Site',
+        createdAt: s.createdAt
+      }));
+
+      const normalizedOst = ostData.map((o) => ({
+        id: `ost_${o.id}`,
+        rawId: o.id,
+        type: 'OTHER',
+        category: o.category,
+        quantity: o.quantity,
+        unit: '',
+        fromSiteName: o.fromSite?.siteName || 'Source Site',
+        toSiteName: o.toSite?.siteName || 'Destination Site',
+        createdAt: o.createdAt
+      }));
+
+      const combined = [...normalizedSt, ...normalizedOst].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      setTransferLogs(combined);
+    } catch (err) {
+      console.error('Failed to fetch transfer logs', err);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const handleOpenTransferLog = () => {
+    setIsTransferLogOpen(true);
+    fetchTransferLogs();
+  };
 
 
   // Other Stock Repair States
@@ -437,6 +498,15 @@ export default function Stocking() {
         actions={
           <div className="flex items-center gap-2">
             <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenTransferLog}
+              icon={<History className="w-4 h-4" />}
+              className="font-semibold shadow-xs border-primary/30 text-primary hover:bg-primary-light/50"
+            >
+              Transfer Log
+            </Button>
+            <Button
               variant="primary"
               size="sm"
               onClick={() => setIsAddStockOpen(true)}
@@ -503,6 +573,15 @@ export default function Stocking() {
               </h3>
               <span className="text-xs text-text-secondary">Site-level Feed & Medicine inventory tracking</span>
             </div>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={handleOpenTransferLog}
+              icon={<History className="w-3.5 h-3.5" />}
+              className="font-semibold text-xs py-1 px-2.5 shadow-2xs border-primary/30 text-primary hover:bg-primary-light/50"
+            >
+              Log
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
@@ -616,34 +695,6 @@ export default function Stocking() {
                                 </span>
                               </div>
                             </div>
-
-                            {/* ITEMIZED BREAKDOWN FOR TRANSFERRED FEED STOCK ONLY */}
-                            {feed.items && feed.items.filter((item) => Boolean(item.transfer?.fromSiteName)).length > 0 && (
-                              <div className="space-y-1.5 pt-2 border-t border-teal-200/50">
-                                {feed.items.filter((item) => Boolean(item.transfer?.fromSiteName)).map((item) => (
-                                  <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-white/90 border border-teal-100 text-xs">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="font-extrabold text-teal-900">
-                                        {item.totalQuantity} {item.unit}
-                                      </span>
-                                      <span className="text-[10px] font-semibold text-teal-800 bg-teal-100/80 px-2 py-0.5 rounded-md flex items-center gap-1 border border-teal-200/60">
-                                        <ArrowRightLeft className="w-3 h-3 text-teal-600" /> Transferred from {item.transfer.fromSiteName}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => setDeletingStockId(item.id)}
-                                        title={`Delete Transferred Stock (Return ${item.totalQuantity} ${item.unit} to ${item.transfer.fromSiteName})`}
-                                        className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         ) : null}
 
@@ -716,34 +767,6 @@ export default function Stocking() {
                                 </span>
                               </div>
                             </div>
-
-                            {/* ITEMIZED BREAKDOWN FOR TRANSFERRED MEDICINE STOCK ONLY */}
-                            {medicine.items && medicine.items.filter((item) => Boolean(item.transfer?.fromSiteName)).length > 0 && (
-                              <div className="space-y-1.5 pt-2 border-t border-cyan-200/50">
-                                {medicine.items.filter((item) => Boolean(item.transfer?.fromSiteName)).map((item) => (
-                                  <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-white/90 border border-cyan-100 text-xs">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="font-extrabold text-cyan-900">
-                                        {item.totalQuantity} {item.unit}
-                                      </span>
-                                      <span className="text-[10px] font-semibold text-cyan-800 bg-cyan-100/80 px-2 py-0.5 rounded-md flex items-center gap-1 border border-cyan-200/60">
-                                        <ArrowRightLeft className="w-3 h-3 text-cyan-600" /> Transferred from {item.transfer.fromSiteName}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => setDeletingStockId(item.id)}
-                                        title={`Delete Transferred Stock (Return ${item.totalQuantity} ${item.unit} to ${item.transfer.fromSiteName})`}
-                                        className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         ) : null}
                       </div>
@@ -769,6 +792,15 @@ export default function Stocking() {
             </h3>
             <span className="text-xs text-text-secondary">Farm-level equipment and spare parts inventory</span>
           </div>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={handleOpenTransferLog}
+            icon={<History className="w-3.5 h-3.5" />}
+            className="font-semibold text-xs py-1 px-2.5 shadow-2xs border-primary/30 text-primary hover:bg-primary-light/50"
+          >
+            Log
+          </Button>
         </div>
 
         {otherStocks.length === 0 ? (
@@ -907,16 +939,6 @@ export default function Stocking() {
                         </Button>
                       )}
                     </div>
-
-                    {isTransferred && (
-                      <div className="p-2 rounded-lg bg-teal-50/80 border border-teal-200/60 text-xs">
-                        <span className="text-[10px] font-semibold text-teal-800 flex items-center gap-1">
-                          <ArrowRightLeft className="w-3 h-3 text-teal-600 shrink-0" />
-                          Transferred from <span className="font-bold">{item.transfer.fromSite?.siteName}</span>
-                        </span>
-                      </div>
-                    )}
-
                   </div>
                 </Card>
               );
@@ -1269,6 +1291,90 @@ export default function Stocking() {
         confirmText="Delete Repair Log"
         type="danger"
       />
+
+      {/* 14. TRANSFER LOG MODAL */}
+      <Modal
+        isOpen={isTransferLogOpen}
+        onClose={() => setIsTransferLogOpen(false)}
+        title="Stock & Equipment Transfer Log"
+        description="History of all feed, medicine, and equipment transfers between sites."
+        size="lg"
+      >
+        <div className="space-y-4 pt-2">
+          {loadingLogs ? (
+            <div className="py-8 flex justify-center items-center">
+              <Loader size="md" text="Loading transfer history..." />
+            </div>
+          ) : transferLogs.length === 0 ? (
+            <div className="py-8 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
+              No stock or equipment transfers recorded yet.
+            </div>
+          ) : (
+            <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+              {transferLogs.map((log) => {
+                const dateStr = log.createdAt
+                  ? new Date(log.createdAt).toLocaleString('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true
+                    })
+                  : 'N/A';
+
+                return (
+                  <div
+                    key={log.id}
+                    className="p-3.5 rounded-xl border border-border/80 bg-surface shadow-2xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-md font-extrabold text-[10px] uppercase tracking-wider ${
+                            log.category === 'FEED'
+                              ? 'bg-teal-100 text-teal-800 border border-teal-200'
+                              : log.category === 'MEDICINE'
+                              ? 'bg-cyan-100 text-cyan-800 border border-cyan-200'
+                              : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                          }`}
+                        >
+                          {log.category}
+                        </span>
+                        <span className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-text-secondary" /> {dateStr}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-extrabold text-text-primary flex items-center gap-2">
+                          <span>
+                            {log.quantity} {log.unit} {log.category}
+                          </span>
+                        </div>
+                        <div className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-text-primary">Transferred from:</span>
+                          <span className="bg-primary-light/60 px-2 py-0.5 rounded text-primary font-bold">{log.fromSiteName}</span>
+                          <ArrowRight className="w-4 h-4 text-primary shrink-0" />
+                          <span className="bg-emerald-100/70 px-2 py-0.5 rounded text-emerald-800 font-bold">{log.toSiteName}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-3 border-t border-border">
+            <Button variant="outline" size="sm" onClick={() => setIsTransferLogOpen(false)}>
+              Close Log
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

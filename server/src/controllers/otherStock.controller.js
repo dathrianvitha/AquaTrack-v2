@@ -6,7 +6,8 @@ import {
   transferOtherStockService,
   sendToRepairService,
   returnFromRepairService,
-  deleteOtherStockRepairLogService
+  deleteOtherStockRepairLogService,
+  getOtherStockTransfersService
 } from "../services/otherStock.service.js";
 
 /*
@@ -172,6 +173,25 @@ export const deleteOtherStockController = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: result?.message || "Other stock deleted successfully"
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/*
+ * Get Other Stock Transfer Logs
+ */
+export const getOtherStockTransfersController = async (req, res) => {
+  try {
+    const transfers = await getOtherStockTransfersService(req.user.id);
+
+    return res.status(200).json({
+      success: true,
+      data: transfers
     });
   } catch (error) {
     return res.status(400).json({

@@ -112,6 +112,16 @@ export const transferStock = async (data) => {
   }
 };
 
+// Get Stock Transfer Logs (GET /api/stocking/transfers)
+export const getTransferLogs = async () => {
+  try {
+    const response = await api.get(`/stocking/transfers?_t=${Date.now()}`);
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to fetch stock transfer logs');
+  }
+};
+
 export const stockingService = {
   createStocking,
   getStockings,
@@ -123,6 +133,7 @@ export const stockingService = {
   deleteAllocation,
   getSiteStockAllocations,
   transferStock,
+  getTransferLogs,
 };
 
 export default stockingService;

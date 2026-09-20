@@ -4,8 +4,65 @@ import { getUserFarm } from "../utils/farm.helpers.js";
 /*
  * Get all Other Stock records for logged-in user's farm
  */
+/*
+ * Get all Other Stock records for logged-in user's farm
+ */
 export const getOtherStocksService = async (userId) => {
   const farm = await getUserFarm(userId);
+
+  // Auto-consolidate any duplicate records for the same (siteId, category) at the farm
+  const allStocks = await prisma.otherStock.findMany({
+    where: { farmId: farm.id },
+    orderBy: { createdAt: "asc" }
+  });
+
+  const groups = {};
+  for (const item of allStocks) {
+    const key = `${item.siteId || 'no_site'}_${item.category.trim().toLowerCase()}`;
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+    groups[key].push(item);
+  }
+
+  for (const key of Object.keys(groups)) {
+    const list = groups[key];
+    if (list.length > 1) {
+      const primary = list[0];
+      const duplicates = list.slice(1);
+      let extraCount = 0;
+      let extraUnderRepair = 0;
+
+      for (const dup of duplicates) {
+        extraCount += dup.count;
+        extraUnderRepair += (dup.underRepair || 0);
+
+        // Re-link repair logs if present
+        try {
+          await prisma.otherStockRepairLog.updateMany({
+            where: { otherStockId: dup.id },
+            data: { otherStockId: primary.id }
+          });
+        } catch (e) {
+          // ignore if table not present
+        }
+
+        // Delete duplicate record
+        await prisma.otherStock.delete({
+          where: { id: dup.id }
+        });
+      }
+
+      // Update primary count and underRepair
+      await prisma.otherStock.update({
+        where: { id: primary.id },
+        data: {
+          count: primary.count + extraCount,
+          underRepair: (primary.underRepair || 0) + extraUnderRepair
+        }
+      });
+    }
+  }
 
   return prisma.otherStock.findMany({
     where: {
@@ -25,7 +82,6 @@ export const getOtherStocksService = async (userId) => {
         }
       },
       transfer: {
-
         include: {
           fromSite: {
             select: {
@@ -53,13 +109,43 @@ export const getOtherStocksService = async (userId) => {
  */
 export const createOtherStockService = async (userId, data) => {
   const farm = await getUserFarm(userId);
+  const targetSiteId = data.siteId || null;
+  const countVal = parseInt(data.count, 10);
+
+  // Merge into existing stock record for same category at this site if present
+  const existing = await prisma.otherStock.findFirst({
+    where: {
+      farmId: farm.id,
+      siteId: targetSiteId,
+      category: data.category
+    },
+    orderBy: { createdAt: "asc" }
+  });
+
+  if (existing) {
+    return prisma.otherStock.update({
+      where: { id: existing.id },
+      data: {
+        count: existing.count + countVal,
+        ...(data.notes ? { notes: data.notes } : {})
+      },
+      include: {
+        site: {
+          select: { id: true, siteName: true, location: true }
+        },
+        repairLogs: {
+          orderBy: { createdAt: "desc" }
+        }
+      }
+    });
+  }
 
   return prisma.otherStock.create({
     data: {
       category: data.category,
-      count: parseInt(data.count, 10),
+      count: countVal,
       notes: data.notes || null,
-      siteId: data.siteId || null,
+      siteId: targetSiteId,
       farmId: farm.id
     },
     include: {
@@ -214,27 +300,60 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
       }
     });
 
-    // Create destination stock record linked to transfer
-    const destinationStock = await tx.otherStock.create({
-      data: {
-        category,
-        count: transferCount,
+    // Check if an existing stock record for this category already exists at destination site
+    const destStock = await tx.otherStock.findFirst({
+      where: {
         siteId: toSiteId,
-        farmId: farm.id,
-        transferId: transferLog.id
+        category,
+        farmId: farm.id
       },
-      include: {
-        site: {
-          select: { id: true, siteName: true, location: true }
+      orderBy: [
+        { transferId: "asc" },
+        { createdAt: "asc" }
+      ]
+    });
+
+    let destinationStock;
+    if (destStock) {
+      // Merge count into existing stock record at destination site
+      destinationStock = await tx.otherStock.update({
+        where: { id: destStock.id },
+        data: {
+          count: destStock.count + transferCount
         },
-        transfer: {
-          include: {
-            fromSite: { select: { id: true, siteName: true } },
-            toSite: { select: { id: true, siteName: true } }
+        include: {
+          site: { select: { id: true, siteName: true, location: true } },
+          repairLogs: { orderBy: { createdAt: "desc" } },
+          transfer: {
+            include: {
+              fromSite: { select: { id: true, siteName: true } },
+              toSite: { select: { id: true, siteName: true } }
+            }
           }
         }
-      }
-    });
+      });
+    } else {
+      // Create new stock record at destination site
+      destinationStock = await tx.otherStock.create({
+        data: {
+          category,
+          count: transferCount,
+          siteId: toSiteId,
+          farmId: farm.id,
+          transferId: transferLog.id
+        },
+        include: {
+          site: { select: { id: true, siteName: true, location: true } },
+          repairLogs: { orderBy: { createdAt: "desc" } },
+          transfer: {
+            include: {
+              fromSite: { select: { id: true, siteName: true } },
+              toSite: { select: { id: true, siteName: true } }
+            }
+          }
+        }
+      });
+    }
 
     return {
       message: `Successfully transferred ${transferCount} ${category} from ${fromSite.siteName} to ${toSite.siteName}.`,
@@ -530,6 +649,21 @@ export const deleteOtherStockRepairLogService = async (userId, logId) => {
       message: "Repair log entry deleted successfully.",
       data: updatedStock
     };
+  });
+};
+
+/*
+ * Get Other Stock Transfer Logs
+ */
+export const getOtherStockTransfersService = async (userId) => {
+  const farm = await getUserFarm(userId);
+  return prisma.otherStockTransfer.findMany({
+    where: { farmId: farm.id },
+    include: {
+      fromSite: { select: { id: true, siteName: true } },
+      toSite: { select: { id: true, siteName: true } }
+    },
+    orderBy: { createdAt: "desc" }
   });
 };
 

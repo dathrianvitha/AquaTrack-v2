@@ -901,4 +901,19 @@ export const transferStock = async (userId, transferData) => {
             data: transferLog
         };
     });
+};
+
+/*
+ * Get Stock Transfer Logs
+ */
+export const getStockTransfersService = async (userId) => {
+    const farm = await getUserFarm(userId);
+    return prisma.stockTransfer.findMany({
+        where: { farmId: farm.id },
+        include: {
+            fromSite: { select: { id: true, siteName: true } },
+            toSite: { select: { id: true, siteName: true } }
+        },
+        orderBy: { createdAt: "desc" }
+    });
 };
