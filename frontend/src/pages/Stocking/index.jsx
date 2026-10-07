@@ -16,7 +16,9 @@ import {
   RotateCcw,
   History,
   FileText,
-  ArrowRight
+  ArrowRight,
+  Filter,
+  X
 } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -112,6 +114,21 @@ export default function Stocking() {
   const [isTransferLogOpen, setIsTransferLogOpen] = useState(false);
   const [transferLogs, setTransferLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [selectedLogDate, setSelectedLogDate] = useState('');
+
+  const filteredTransferLogs = useMemo(() => {
+    if (!selectedLogDate) return transferLogs;
+    return transferLogs.filter((log) => {
+      if (!log.createdAt) return false;
+      const d = new Date(log.createdAt);
+      if (isNaN(d.getTime())) return false;
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const logDateStr = `${year}-${month}-${day}`;
+      return logDateStr === selectedLogDate;
+    });
+  }, [transferLogs, selectedLogDate]);
 
   const fetchTransferLogs = async () => {
     setLoadingLogs(true);
@@ -161,6 +178,7 @@ export default function Stocking() {
   };
 
   const handleOpenTransferLog = () => {
+    setSelectedLogDate('');
     setIsTransferLogOpen(true);
     fetchTransferLogs();
   };
@@ -1301,6 +1319,35 @@ export default function Stocking() {
         size="lg"
       >
         <div className="space-y-4 pt-2">
+          {/* Date Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-background/50 border border-border/70 rounded-xl">
+            <div className="flex items-center gap-2 text-xs font-semibold text-text-secondary">
+              <Filter className="w-4 h-4 text-primary" />
+              <span>Filter by Date:</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-40 sm:w-48">
+                <Input
+                  type="date"
+                  value={selectedLogDate}
+                  onChange={(e) => setSelectedLogDate(e.target.value)}
+                  className="text-xs py-1.5"
+                />
+              </div>
+              {selectedLogDate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedLogDate('')}
+                  className="text-xs text-text-secondary hover:text-danger h-9 px-2 shrink-0"
+                  icon={<X className="w-3.5 h-3.5" />}
+                >
+                  All Dates
+                </Button>
+              )}
+            </div>
+          </div>
+
           {loadingLogs ? (
             <div className="py-8 flex justify-center items-center">
               <Loader size="md" text="Loading transfer history..." />
@@ -1309,9 +1356,13 @@ export default function Stocking() {
             <div className="py-8 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
               No stock or equipment transfers recorded yet.
             </div>
+          ) : filteredTransferLogs.length === 0 ? (
+            <div className="py-8 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
+              No transfers found for this date.
+            </div>
           ) : (
             <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
-              {transferLogs.map((log) => {
+              {filteredTransferLogs.map((log) => {
                 const dateStr = log.createdAt
                   ? new Date(log.createdAt).toLocaleString('en-IN', {
                       day: '2-digit',
