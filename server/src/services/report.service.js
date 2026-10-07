@@ -6,6 +6,39 @@ import {
 } from "../utils/farm.helpers.js";
 
 /* ---------------------------------------------
+   Helper: Build Date Range Filter
+----------------------------------------------*/
+export const buildDateFilter = (fromDate, toDate) => {
+    if (!fromDate && !toDate) return null;
+    const filter = {};
+    if (fromDate) {
+        let start;
+        if (typeof fromDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
+            start = new Date(`${fromDate}T00:00:00.000Z`);
+        } else {
+            start = new Date(fromDate);
+            start.setHours(0, 0, 0, 0);
+        }
+        if (!isNaN(start.getTime())) {
+            filter.gte = start;
+        }
+    }
+    if (toDate) {
+        let end;
+        if (typeof toDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+            end = new Date(`${toDate}T23:59:59.999Z`);
+        } else {
+            end = new Date(toDate);
+            end.setHours(23, 59, 59, 999);
+        }
+        if (!isNaN(end.getTime())) {
+            filter.lte = end;
+        }
+    }
+    return Object.keys(filter).length > 0 ? filter : null;
+};
+
+/* ---------------------------------------------
    Get all tanks for Reports page
 ----------------------------------------------*/
 
@@ -73,7 +106,9 @@ export const getActiveTankReport = async (
 
     userId,
 
-    tankId
+    tankId,
+
+    dateFilter = {}
 
 ) => {
 
@@ -109,7 +144,9 @@ export const getActiveTankReport = async (
 
         tank,
 
-        crop
+        crop,
+
+        dateFilter
 
     );
 
@@ -176,7 +213,9 @@ export const getCompletedCropReport = async (
 
     userId,
 
-    cropId
+    cropId,
+
+    dateFilter = {}
 
 ) => {
 
@@ -218,7 +257,9 @@ export const getCompletedCropReport = async (
 
         crop.tank,
 
-        crop
+        crop,
+
+        dateFilter
 
     );
 
@@ -227,10 +268,15 @@ export const getCompletedCropReport = async (
 /* ---------------------------------------------
    Helper: Calculate Crop Pond Lease Cost
 ----------------------------------------------*/
-const getCropPondLeaseCost = async (tankId, crop) => {
+const getCropPondLeaseCost = async (tankId, crop, dateRange = null) => {
+    const directWhere = { tankId };
+    if (dateRange) {
+        directWhere.leaseStartDate = dateRange;
+    }
+
     // 1. Check direct leases for this tank
     let pondLeases = await prisma.pondLease.findMany({
-        where: { tankId }
+        where: directWhere
     });
 
     if (pondLeases && pondLeases.length > 0) {
@@ -244,12 +290,16 @@ const getCropPondLeaseCost = async (tankId, crop) => {
     });
 
     if (currentTank?.siteId) {
-        const siteLeases = await prisma.pondLease.findMany({
-            where: {
-                tank: {
-                    siteId: currentTank.siteId
-                }
+        const siteWhere = {
+            tank: {
+                siteId: currentTank.siteId
             }
+        };
+        if (dateRange) {
+            siteWhere.leaseStartDate = dateRange;
+        }
+        const siteLeases = await prisma.pondLease.findMany({
+            where: siteWhere
         });
 
         if (siteLeases && siteLeases.length > 0) {
@@ -273,17 +323,20 @@ const buildReport = async (
 
     tank,
 
-    crop
+    crop,
+
+    dateFilter = {}
 
 ) => {
 
+    const dateRange = buildDateFilter(dateFilter?.fromDate, dateFilter?.toDate);
+
+    const feedWhere = { cropId: crop.id };
+    if (dateRange) feedWhere.date = dateRange;
+
     const feedEntries = await prisma.feedEntry.findMany({
 
-        where: {
-
-            cropId: crop.id
-
-        },
+        where: feedWhere,
 
         orderBy: {
 
@@ -292,14 +345,13 @@ const buildReport = async (
         }
 
     });
+
+    const medicineWhere = { tankId: tank.id };
+    if (dateRange) medicineWhere.date = dateRange;
 
     const medicines = await prisma.medicine.findMany({
 
-        where: {
-
-            tankId: tank.id
-
-        },
+        where: medicineWhere,
 
         orderBy: {
 
@@ -308,14 +360,13 @@ const buildReport = async (
         }
 
     });
+
+    const expenseWhere = { cropId: crop.id };
+    if (dateRange) expenseWhere.date = dateRange;
 
     const expenses = await prisma.expense.findMany({
 
-        where: {
-
-            cropId: crop.id
-
-        },
+        where: expenseWhere,
 
         orderBy: {
 
@@ -325,7 +376,7 @@ const buildReport = async (
 
     });
 
-    const totalPondLeaseCost = await getCropPondLeaseCost(tank.id, crop);
+    const totalPondLeaseCost = await getCropPondLeaseCost(tank.id, crop, dateRange);
 
     const totalFeedCost = feedEntries.reduce(
 
@@ -414,10 +465,11 @@ const buildReport = async (
 
     );
 
+    const harvestWhere = { cropId: crop.id };
+    if (dateRange) harvestWhere.harvestDate = dateRange;
+
     const harvests = await prisma.harvest.findMany({
-        where: {
-            cropId: crop.id
-        },
+        where: harvestWhere,
         orderBy: [
             { harvestNumber: "asc" },
             { harvestDate: "asc" }
@@ -515,8 +567,13 @@ const buildReport = async (
    Get Comprehensive Farm Overview Report
    Aggregates all crops, feed, expenses, leases, and harvests
 ----------------------------------------------*/
-export const getFarmOverviewReport = async (userId) => {
+export const getFarmOverviewReport = async (userId, dateFilter = {}) => {
     const farm = await getUserFarm(userId);
+    const dateRange = buildDateFilter(dateFilter?.fromDate, dateFilter?.toDate);
+
+    const feedInclude = dateRange ? { where: { date: dateRange }, orderBy: { date: "desc" } } : { orderBy: { date: "desc" } };
+    const expenseInclude = dateRange ? { where: { date: dateRange }, orderBy: { date: "desc" } } : { orderBy: { date: "desc" } };
+    const harvestInclude = dateRange ? { where: { harvestDate: dateRange }, orderBy: [{ harvestNumber: "asc" }, { harvestDate: "asc" }] } : { orderBy: [{ harvestNumber: "asc" }, { harvestDate: "asc" }] };
 
     const crops = await prisma.crop.findMany({
         where: {
@@ -532,31 +589,37 @@ export const getFarmOverviewReport = async (userId) => {
                     site: true
                 }
             },
-            feedEntries: true,
-            expenses: true,
-            harvests: true
+            feedEntries: feedInclude,
+            expenses: expenseInclude,
+            harvests: harvestInclude
         }
     });
 
-    const medicines = await prisma.medicine.findMany({
-        where: {
-            tank: {
-                site: {
-                    farmId: farm.id
-                }
+    const medicineWhere = {
+        tank: {
+            site: {
+                farmId: farm.id
             }
         },
+        ...(dateRange ? { date: dateRange } : {})
+    };
+
+    const medicines = await prisma.medicine.findMany({
+        where: medicineWhere,
         orderBy: { date: "desc" }
     });
 
-    const pondLeases = await prisma.pondLease.findMany({
-        where: {
-            tank: {
-                site: {
-                    farmId: farm.id
-                }
+    const leaseWhere = {
+        tank: {
+            site: {
+                farmId: farm.id
             }
         },
+        ...(dateRange ? { leaseStartDate: dateRange } : {})
+    };
+
+    const pondLeases = await prisma.pondLease.findMany({
+        where: leaseWhere,
         include: {
             tank: true
         }
@@ -651,8 +714,9 @@ export const getFarmOverviewReport = async (userId) => {
    Get Comprehensive Site Overview Report
    Aggregates crops, feed, expenses, leases, and harvests for a specific site
 ----------------------------------------------*/
-export const getSiteOverviewReport = async (userId, siteId) => {
+export const getSiteOverviewReport = async (userId, siteId, dateFilter = {}) => {
     const farm = await getUserFarm(userId);
+    const dateRange = buildDateFilter(dateFilter?.fromDate, dateFilter?.toDate);
 
     const site = await prisma.site.findFirst({
         where: {
@@ -668,6 +732,10 @@ export const getSiteOverviewReport = async (userId, siteId) => {
         throw new Error("Site not found or does not belong to your farm.");
     }
 
+    const feedInclude = dateRange ? { where: { date: dateRange }, orderBy: { date: "desc" } } : { orderBy: { date: "desc" } };
+    const expenseInclude = dateRange ? { where: { date: dateRange }, orderBy: { date: "desc" } } : { orderBy: { date: "desc" } };
+    const harvestInclude = dateRange ? { where: { harvestDate: dateRange }, orderBy: [{ harvestNumber: "asc" }, { harvestDate: "asc" }] } : { orderBy: [{ harvestNumber: "asc" }, { harvestDate: "asc" }] };
+
     const crops = await prisma.crop.findMany({
         where: {
             tank: {
@@ -680,27 +748,33 @@ export const getSiteOverviewReport = async (userId, siteId) => {
                     site: true
                 }
             },
-            feedEntries: true,
-            expenses: true,
-            harvests: true
+            feedEntries: feedInclude,
+            expenses: expenseInclude,
+            harvests: harvestInclude
         }
     });
 
-    const medicines = await prisma.medicine.findMany({
-        where: {
-            tank: {
-                siteId: site.id
-            }
+    const medicineWhere = {
+        tank: {
+            siteId: site.id
         },
+        ...(dateRange ? { date: dateRange } : {})
+    };
+
+    const medicines = await prisma.medicine.findMany({
+        where: medicineWhere,
         orderBy: { date: "desc" }
     });
 
-    const pondLeases = await prisma.pondLease.findMany({
-        where: {
-            tank: {
-                siteId: site.id
-            }
+    const leaseWhere = {
+        tank: {
+            siteId: site.id
         },
+        ...(dateRange ? { leaseStartDate: dateRange } : {})
+    };
+
+    const pondLeases = await prisma.pondLease.findMany({
+        where: leaseWhere,
         include: {
             tank: true
         }

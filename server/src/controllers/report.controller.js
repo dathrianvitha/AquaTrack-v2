@@ -7,6 +7,16 @@ import {
     getSiteOverviewReport
 } from "../services/report.service.js";
 
+const validateDates = (fromDate, toDate) => {
+    if (fromDate && toDate) {
+        const start = new Date(fromDate);
+        const end = new Date(toDate);
+        if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && start > end) {
+            throw new Error("From Date cannot be later than To Date.");
+        }
+    }
+};
+
 /* ---------------------------------------------
    Get All Tanks for Reports
 ----------------------------------------------*/
@@ -52,12 +62,16 @@ export const getReportTanksController = async (req, res) => {
 export const getActiveTankReportController = async (req, res) => {
 
     try {
+        const { fromDate, toDate } = req.query;
+        validateDates(fromDate, toDate);
 
         const report = await getActiveTankReport(
 
             req.user.id,
 
-            req.params.tankId
+            req.params.tankId,
+
+            { fromDate, toDate }
 
         );
 
@@ -132,12 +146,16 @@ export const getCompletedCropsController = async (req, res) => {
 export const getCompletedCropReportController = async (req, res) => {
 
     try {
+        const { fromDate, toDate } = req.query;
+        validateDates(fromDate, toDate);
 
         const report = await getCompletedCropReport(
 
             req.user.id,
 
-            req.params.cropId
+            req.params.cropId,
+
+            { fromDate, toDate }
 
         );
 
@@ -170,7 +188,10 @@ export const getCompletedCropReportController = async (req, res) => {
 ----------------------------------------------*/
 export const getFarmOverviewReportController = async (req, res) => {
     try {
-        const report = await getFarmOverviewReport(req.user.id);
+        const { fromDate, toDate } = req.query;
+        validateDates(fromDate, toDate);
+
+        const report = await getFarmOverviewReport(req.user.id, { fromDate, toDate });
         return res.status(200).json({
             success: true,
             message: "Farm overview report fetched successfully",
@@ -189,7 +210,10 @@ export const getFarmOverviewReportController = async (req, res) => {
 ----------------------------------------------*/
 export const getSiteOverviewReportController = async (req, res) => {
     try {
-        const report = await getSiteOverviewReport(req.user.id, req.params.siteId);
+        const { fromDate, toDate } = req.query;
+        validateDates(fromDate, toDate);
+
+        const report = await getSiteOverviewReport(req.user.id, req.params.siteId, { fromDate, toDate });
         return res.status(200).json({
             success: true,
             message: "Site overview report fetched successfully",
