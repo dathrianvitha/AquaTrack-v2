@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,6 +9,7 @@ import { Select } from '../Select';
 import { Textarea } from '../Textarea';
 import { Button } from '../Button';
 import { useTanks } from '../../context/TankContext';
+import { useSites } from '../../context/SiteContext';
 import { useStocking } from '../../context/StockingContext';
 
 // Zod Validation Schema matching required text inputs
@@ -41,7 +42,7 @@ const feedSchema = z.object({
 });
 
 /**
- * Reusable FeedForm component with dynamic Tank dropdown from TankContext
+ * Reusable FeedForm component with dynamic Site -> Tank selection hierarchy from SiteContext & TankContext
  * and real-time Site Stock Availability indicator and validation.
  */
 export const FeedForm = ({
@@ -52,26 +53,50 @@ export const FeedForm = ({
   formError = '',
 }) => {
   const { tanks = [] } = useTanks();
+  const { sites = [] } = useSites();
   const { stockings = [] } = useStocking();
   const isEditing = Boolean(initialData?.id);
 
+  const [selectedSiteId, setSelectedSiteId] = useState('');
+
+  // Map registered sites for dropdown selection
+  const siteSelectOptions = useMemo(() => {
+    return sites.map((site) => {
+      const rawName = site.siteName || site.name || 'Site';
+      const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
+      return {
+        value: String(site.id),
+        label: cleanName,
+      };
+    });
+  }, [sites]);
+
+  // Filter tanks belonging strictly to the selected Site
+  const filteredTanks = useMemo(() => {
+    if (!selectedSiteId) return [];
+    return tanks.filter((tank) => String(tank.siteId || tank.site?.id) === String(selectedSiteId));
+  }, [tanks, selectedSiteId]);
+
   // Format Tank label as Tank Name — Site Name (e.g. T1 — Juvvalapalem)
-  const tankSelectOptions = tanks.map((tank) => {
-    const rawName = tank.name || tank.tankName || 'Tank';
-    const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
-    const siteName = tank.siteName || tank.site?.siteName || '';
-    const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
-    return {
-      value: tank.id,
-      label,
-    };
-  });
+  const tankSelectOptions = useMemo(() => {
+    return filteredTanks.map((tank) => {
+      const rawName = tank.name || tank.tankName || 'Tank';
+      const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
+      const siteName = tank.siteName || tank.site?.siteName || '';
+      const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
+      return {
+        value: String(tank.id),
+        label,
+      };
+    });
+  }, [filteredTanks]);
 
   const {
     register,
     handleSubmit,
     reset,
     watch,
+    setValue,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(feedSchema),
@@ -96,11 +121,11 @@ export const FeedForm = ({
     return tanks.find((t) => String(t.id) === String(selectedTankId));
   }, [tanks, selectedTankId]);
 
-  const siteId = selectedTank?.siteId || selectedTank?.site?.id;
+  const siteId = selectedTank?.siteId || selectedTank?.site?.id || selectedSiteId;
 
-  // Compute available feed stock for selected tank's site
+  // Compute available feed stock for selected site
   const siteFeedStockInfo = useMemo(() => {
-    if (!selectedTankId || !siteId) return null;
+    if (!siteId) return null;
 
     let totalAdded = 0;
     let used = 0;
@@ -127,7 +152,8 @@ export const FeedForm = ({
     const currentLogQty = isEditing ? (parseFloat(initialData?.quantity || initialData?.quantityKg) || 0) : 0;
     const effectiveUsed = Math.max(used - currentLogQty, 0);
     const remaining = Math.max(totalAdded - effectiveUsed, 0);
-    const siteName = selectedTank?.site?.siteName || selectedTank?.siteName || 'this site';
+    const matchingSite = sites.find((s) => String(s.id) === String(siteId));
+    const siteName = selectedTank?.site?.siteName || selectedTank?.siteName || matchingSite?.siteName || matchingSite?.name || 'this site';
 
     return {
       totalAdded,
@@ -137,7 +163,7 @@ export const FeedForm = ({
       siteName,
       hasStock: totalAdded > 0,
     };
-  }, [selectedTankId, siteId, stockings, selectedTank, isEditing, initialData]);
+  }, [siteId, stockings, selectedTank, isEditing, initialData, sites]);
 
   const isExcess = Boolean(siteFeedStockInfo && siteFeedStockInfo.hasStock && enteredQuantity > siteFeedStockInfo.remaining);
   const isNoStock = Boolean(siteFeedStockInfo && !siteFeedStockInfo.hasStock);
@@ -152,10 +178,16 @@ export const FeedForm = ({
 
   const isSubmitDisabled = isSubmitting || isExcess || (isNoStock && enteredQuantity > 0);
 
+  // Initialize or reset form values
   useEffect(() => {
     if (initialData) {
+      const initTankId = initialData.tankId ? String(initialData.tankId) : '';
+      const matchingTank = tanks.find((t) => String(t.id) === initTankId);
+      const initSiteId = matchingTank?.siteId || matchingTank?.site?.id ? String(matchingTank.siteId || matchingTank.site.id) : '';
+      setSelectedSiteId(initSiteId);
+
       reset({
-        tankId: initialData.tankId || '',
+        tankId: initTankId,
         date: initialData.date || initialData.feedingDate || '',
         feedBrand: initialData.feedBrand || '',
         feedType: initialData.feedType || '',
@@ -163,16 +195,41 @@ export const FeedForm = ({
         costPerKg: initialData.costPerKg || (initialData.feedCost && initialData.quantityKg ? initialData.feedCost / initialData.quantityKg : ''),
         notes: initialData.notes || '',
       });
+    } else {
+      setSelectedSiteId('');
+      reset({
+        tankId: '',
+        date: new Date().toISOString().split('T')[0],
+        feedBrand: '',
+        feedType: '',
+        quantity: '',
+        costPerKg: '',
+        notes: '',
+      });
     }
-  }, [initialData, reset]);
+  }, [initialData, reset, tanks]);
+
+  // Handle site dropdown change and clear previously selected tank
+  const handleSiteChange = (e) => {
+    const newSiteId = e.target.value;
+    setSelectedSiteId(newSiteId);
+    setValue('tankId', '', { shouldValidate: true });
+  };
+
+  const isTankDisabled = !selectedSiteId || filteredTanks.length === 0;
+  const tankPlaceholder = !selectedSiteId
+    ? 'Choose site first...'
+    : filteredTanks.length === 0
+      ? 'No tanks available for this site'
+      : 'Choose tank...';
 
   const handleFormSubmit = (data) => {
     if (isExcess || (isNoStock && enteredQuantity > 0)) {
       return;
     }
 
-    const selectedTankObj = tanks.find((t) => t.id === data.tankId);
-    const rawTankName = selectedTankObj ? selectedTankObj.name : 'Selected Tank';
+    const selectedTankObj = tanks.find((t) => String(t.id) === String(data.tankId));
+    const rawTankName = selectedTankObj ? (selectedTankObj.name || selectedTankObj.tankName) : 'Selected Tank';
     const cleanTankName = rawTankName.replace(/\s*\([^)]*\)/g, '').trim();
 
     const feedPayload = {
@@ -215,14 +272,26 @@ export const FeedForm = ({
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select
+            label="Choose Site"
+            required={true}
+            placeholder="Choose site..."
+            options={siteSelectOptions}
+            value={selectedSiteId}
+            onChange={handleSiteChange}
+          />
+
+          <Select
             label="Choose Tank"
             required={true}
-            placeholder="Choose tank..."
+            placeholder={tankPlaceholder}
             options={tankSelectOptions}
+            disabled={isTankDisabled}
             error={errors.tankId?.message}
             {...register('tankId')}
           />
+        </div>
 
+        <div>
           <Input
             label="Feeding Date"
             type="date"
