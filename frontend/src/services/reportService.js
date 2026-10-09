@@ -8,12 +8,12 @@ export const reportService = {
    * GET /api/reports/farm-overview
    * Fetches aggregated farm-wide report across all tanks, crops, feed, medicines, pond leases, and expenses.
    */
-  async getFarmOverviewReport() {
+  async getFarmOverviewReport(params = {}) {
     try {
-      const response = await api.get('/reports/farm-overview');
+      const response = await api.get('/reports/farm-overview', { params });
       return response.data;
     } catch (error) {
-      throw new Error(error.message || 'Failed to fetch farm overview report');
+      throw new Error(error.response?.data?.message || error.message || 'Failed to fetch farm overview report');
     }
   },
 
@@ -21,13 +21,13 @@ export const reportService = {
    * GET /api/reports/site/:siteId
    * Fetches aggregated site-level report across all tanks, crops, feed, medicines, pond leases, and expenses for a site.
    */
-  async getSiteOverviewReport(siteId) {
+  async getSiteOverviewReport(siteId, params = {}) {
     if (!siteId) throw new Error('Site ID is required');
     try {
-      const response = await api.get(`/reports/site/${siteId}`);
+      const response = await api.get(`/reports/site/${siteId}`, { params });
       return response.data;
     } catch (error) {
-      throw new Error(error.message || 'Failed to fetch site overview report');
+      throw new Error(error.response?.data?.message || error.message || 'Failed to fetch site overview report');
     }
   },
 
@@ -60,13 +60,13 @@ export const reportService = {
    * GET /api/reports/tank/:tankId/active
    * Fetches report data for the active crop batch in the specified tank.
    */
-  async getActiveTankReport(tankId) {
+  async getActiveTankReport(tankId, params = {}) {
     if (!tankId) throw new Error('Tank ID is required');
     try {
-      const response = await api.get(`/reports/tank/${tankId}/active`);
+      const response = await api.get(`/reports/tank/${tankId}/active`, { params });
       return response.data;
     } catch (error) {
-      throw new Error(error.message || 'Failed to fetch active tank report');
+      throw new Error(error.response?.data?.message || error.message || 'Failed to fetch active tank report');
     }
   },
 
@@ -89,13 +89,13 @@ export const reportService = {
    * GET /api/reports/crop/:cropId
    * Fetches report data for a specific completed crop batch.
    */
-  async getCompletedCropReport(cropId) {
+  async getCompletedCropReport(cropId, params = {}) {
     if (!cropId) throw new Error('Crop ID is required');
     try {
-      const response = await api.get(`/reports/crop/${cropId}`);
+      const response = await api.get(`/reports/crop/${cropId}`, { params });
       return response.data;
     } catch (error) {
-      throw new Error(error.message || 'Failed to fetch completed crop report');
+      throw new Error(error.response?.data?.message || error.message || 'Failed to fetch completed crop report');
     }
   },
 };

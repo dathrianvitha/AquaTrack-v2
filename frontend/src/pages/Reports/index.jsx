@@ -12,7 +12,10 @@ import {
   Wheat,
   Building2,
   MapPin,
-  Waves
+  Waves,
+  X,
+  AlertCircle,
+  Filter
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -28,6 +31,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardBody } from '../../co
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { Select } from '../../components/Select';
+import { Input } from '../../components/Input';
 import { EmptyState } from '../../components/EmptyState';
 import { Loader } from '../../components/Loader';
 import { getHarvestLevelLabel } from '../../components/HarvestCard';
@@ -56,6 +60,11 @@ export default function Reports() {
 
   // 1. Report Scope Level: 'FARM', 'SITE', or 'TANK'
   const [reportLevel, setReportLevel] = useState('FARM');
+
+  // Optional Cumulative Date Range Filter state
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [dateError, setDateError] = useState('');
 
   // Sites & Tanks state
   const [sites, setSites] = useState([]);
@@ -324,8 +333,22 @@ export default function Reports() {
       setLoadingReport(true);
       setInfoMsg('');
 
+      // Validate Date Range
+      if (fromDate && toDate && fromDate > toDate) {
+        setDateError('From Date cannot be later than To Date.');
+        setReportData(null);
+        setLoadingReport(false);
+        return;
+      } else {
+        setDateError('');
+      }
+
+      const params = {};
+      if (fromDate) params.fromDate = fromDate;
+      if (toDate) params.toDate = toDate;
+
       if (reportLevel === 'FARM') {
-        const res = await reportService.getFarmOverviewReport();
+        const res = await reportService.getFarmOverviewReport(params);
         setReportData(res.data || res);
         return;
       }
@@ -336,7 +359,7 @@ export default function Reports() {
           setInfoMsg('Please select a site to view its report.');
           return;
         }
-        const res = await reportService.getSiteOverviewReport(selectedSiteId);
+        const res = await reportService.getSiteOverviewReport(selectedSiteId, params);
         setReportData(res.data || res);
         return;
       }
@@ -354,14 +377,14 @@ export default function Reports() {
 
         if (reportType === 'ACTIVE') {
           try {
-            const res = await reportService.getActiveTankReport(selectedTankId);
+            const res = await reportService.getActiveTankReport(selectedTankId, params);
             setReportData(res.data || res);
           } catch (activeErr) {
             if (completedCrops.length > 0) {
               setReportType('COMPLETED');
               const targetCropId = selectedCropId || completedCrops[0].id;
               setSelectedCropId(String(targetCropId));
-              const compRes = await reportService.getCompletedCropReport(targetCropId);
+              const compRes = await reportService.getCompletedCropReport(targetCropId, params);
               setReportData(compRes.data || compRes);
               return;
             }
@@ -370,7 +393,7 @@ export default function Reports() {
         } else if (reportType === 'COMPLETED') {
           const targetCropId = selectedCropId || (completedCrops.length > 0 ? completedCrops[0].id : null);
           if (targetCropId) {
-            const res = await reportService.getCompletedCropReport(targetCropId);
+            const res = await reportService.getCompletedCropReport(targetCropId, params);
             setReportData(res.data || res);
           } else {
             setReportData(null);
@@ -389,7 +412,7 @@ export default function Reports() {
     } finally {
       setLoadingReport(false);
     }
-  }, [reportLevel, selectedSiteId, selectedTankId, reportType, selectedCropId, completedCrops, siteFilteredTanks]);
+  }, [reportLevel, selectedSiteId, selectedTankId, reportType, selectedCropId, completedCrops, siteFilteredTanks, fromDate, toDate]);
 
   useEffect(() => {
     loadReport();
@@ -450,6 +473,9 @@ export default function Reports() {
     }
     if (reportLevel === 'TANK' && crop.cropName) {
       rows.push([escapeCell('Batch / Crop'), escapeCell(crop.cropName)]);
+    }
+    if (fromDate || toDate) {
+      rows.push([escapeCell('Date Range'), escapeCell(`${fromDate || 'All Time Start'} to ${toDate || 'All Time End'}`)]);
     }
     rows.push([escapeCell('Generated Date'), escapeCell(new Date().toLocaleDateString('en-IN'))]);
     rows.push([]);
@@ -668,6 +694,74 @@ export default function Reports() {
         </div>
       </div>
 
+      {/* 2.5 OPTIONAL CUMULATIVE DATE RANGE FILTER */}
+      <Card padding="relaxed" className="border-border/80 shadow-2xs print:hidden">
+        <div className="flex flex-col space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-primary shrink-0" />
+              Cumulative Date Filter (Optional)
+            </span>
+            {(fromDate || toDate) && (
+              <span className="text-xs font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-md">
+                Cumulative Mode Active
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
+            <Input
+              type="date"
+              label="From Date"
+              placeholder="Select start date"
+              value={fromDate}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                if (dateError) setDateError('');
+              }}
+              icon={<Calendar className="w-4 h-4 text-text-secondary" />}
+            />
+
+            <Input
+              type="date"
+              label="To Date"
+              placeholder="Select end date"
+              value={toDate}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                if (dateError) setDateError('');
+              }}
+              icon={<Calendar className="w-4 h-4 text-text-secondary" />}
+            />
+
+            <div className="flex items-end h-[42px]">
+              <Button
+                type="button"
+                variant="outline"
+                size="md"
+                disabled={!fromDate && !toDate}
+                onClick={() => {
+                  setFromDate('');
+                  setToDate('');
+                  setDateError('');
+                }}
+                icon={<X className="w-4 h-4" />}
+                className="w-full sm:w-auto font-semibold text-text-secondary hover:text-danger hover:border-danger/40 disabled:opacity-50"
+              >
+                Clear / Reset
+              </Button>
+            </div>
+          </div>
+
+          {dateError && (
+            <div className="text-xs font-semibold text-danger flex items-center gap-2 bg-danger/10 p-3 rounded-xl border border-danger/20">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{dateError}</span>
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* 3. DYNAMIC LEVEL CONTROLS (Site / Tank / Batch Selectors) */}
       {reportLevel !== 'FARM' && (
         <Card padding="relaxed" className="border-border/80 shadow-2xs print:hidden">
@@ -776,6 +870,11 @@ export default function Reports() {
                   {reportLevel === 'SITE' && 'Site Consolidated'}
                   {reportLevel === 'TANK' && `${crop.status || 'Active'} Batch`}
                 </Badge>
+                {(fromDate || toDate) && (
+                  <Badge variant="primary" size="sm" className="bg-teal-600 text-white border-none">
+                    Cumulative: {fromDate || 'Start'} to {toDate || 'End'}
+                  </Badge>
+                )}
                 <span className="text-xs text-text-secondary font-medium">
                   {reportLevel === 'FARM' && `${tank.tankName || 'All Ponds'} (${tank.area || 0} Total Acres)`}
                   {reportLevel === 'SITE' && `${site.siteName || selectedSiteObject?.siteName} (${site.area || selectedSiteObject?.area || 0} Acres • ${site.tankCount || 0} Tanks)`}
