@@ -107,6 +107,21 @@ export default function FeedManagement() {
     });
   }, [feedLogs, siteFilter, tankFilter, dateFilter, siteTankIds]);
 
+  // Filter-based cumulative summary metrics
+  const filteredTotalFeedUsedKg = useMemo(() => {
+    return filteredFeedLogs.reduce((sum, log) => {
+      const qty = parseFloat(log.quantity ?? log.quantityKg) || 0;
+      return sum + qty;
+    }, 0);
+  }, [filteredFeedLogs]);
+
+  const filteredTotalFeedCostRupees = useMemo(() => {
+    return filteredFeedLogs.reduce((sum, log) => {
+      const cost = parseFloat(log.totalCost ?? log.feedCost ?? ((log.quantity || log.quantityKg || 0) * (log.costPerKg || 0))) || 0;
+      return sum + cost;
+    }, 0);
+  }, [filteredFeedLogs]);
+
   // Form Handlers
   const handleOpenAdd = () => {
     setEditingFeedLog(null);
@@ -246,7 +261,7 @@ export default function FeedManagement() {
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase text-text-secondary tracking-wider block">Total Feed Used</span>
-              <span className="text-lg font-bold text-text-primary tracking-tight">{safeAnalytics.totalFeedUsedKg} kg</span>
+              <span className="text-lg font-bold text-text-primary tracking-tight">{filteredTotalFeedUsedKg.toLocaleString(undefined, { maximumFractionDigits: 2 })} kg</span>
             </div>
           </div>
         </Card>
@@ -258,7 +273,7 @@ export default function FeedManagement() {
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase text-text-secondary tracking-wider block">Total Feed Cost</span>
-              <span className="text-lg font-bold text-text-primary tracking-tight">₹{safeAnalytics.totalFeedCostRupees.toLocaleString()}</span>
+              <span className="text-lg font-bold text-text-primary tracking-tight">₹{filteredTotalFeedCostRupees.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
             </div>
           </div>
         </Card>
