@@ -8,7 +8,9 @@ export const expenseCategories = [
     "Labour",
     "Maintenance",
     "Salaries",
-    "Pond Lease"
+    "Pond Lease",
+    "Transport",
+    "Others"
 ];
 
 export const paymentModes = [

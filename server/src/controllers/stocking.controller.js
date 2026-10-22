@@ -9,7 +9,8 @@ import {
     updateSiteStockAllocation,
     deleteSiteStockAllocation,
     transferStock,
-    getStockTransfersService
+    getStockTransfersService,
+    getStockAdditionLogsService
 } from "../services/stocking.service.js";
 
 
@@ -352,6 +353,24 @@ export const getStockTransfersController = async (req, res) => {
         return res.status(200).json({
             success: true,
             data: transfers
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+/*
+ * Get Stock Addition Logs (Add Stock entries)
+ */
+export const getStockAdditionLogsController = async (req, res) => {
+    try {
+        const logs = await getStockAdditionLogsService(req.user.id);
+        return res.status(200).json({
+            success: true,
+            data: logs
         });
     } catch (error) {
         return res.status(400).json({

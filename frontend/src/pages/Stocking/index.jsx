@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Plus,
   UtensilsCrossed,
@@ -18,7 +18,8 @@ import {
   FileText,
   ArrowRight,
   Filter,
-  X
+  X,
+  ChevronDown
 } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -36,6 +37,7 @@ import { OtherStockModal } from '../../components/OtherStockModal';
 import { StockTransferModal } from '../../components/StockTransferModal';
 import { OtherStockTransferModal } from '../../components/OtherStockTransferModal';
 import { OtherStockRepairModal } from '../../components/OtherStockRepairModal';
+import { Select } from '../../components/Select';
 
 
 import { useStocking } from '../../context/StockingContext';
@@ -86,6 +88,7 @@ export default function Stocking() {
   }, [fetchStockings]);
 
   // Modal & Action states
+  const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
   const [isAddStockOpen, setIsAddStockOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -109,6 +112,25 @@ export default function Stocking() {
   const [isOtherStockSubmitting, setIsOtherStockSubmitting] = useState(false);
   const [otherStockTransferSource, setOtherStockTransferSource] = useState(null);
   const [isOtherStockTransferSubmitting, setIsOtherStockTransferSubmitting] = useState(false);
+
+  // Log Menu Dropdown State
+  const [isLogMenuOpen, setIsLogMenuOpen] = useState(false);
+  const logMenuRef = useRef(null);
+
+  // Close log dropdown menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (logMenuRef.current && !logMenuRef.current.contains(event.target)) {
+        setIsLogMenuOpen(false);
+      }
+    };
+    if (isLogMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isLogMenuOpen]);
 
   // Transfer Log Modal States
   const [isTransferLogOpen, setIsTransferLogOpen] = useState(false);
@@ -181,6 +203,81 @@ export default function Stocking() {
     setSelectedLogDate('');
     setIsTransferLogOpen(true);
     fetchTransferLogs();
+  };
+
+  // Stock Log Modal States & Handlers
+  const [isStockLogOpen, setIsStockLogOpen] = useState(false);
+  const [stockLogs, setStockLogs] = useState([]);
+  const [loadingStockLogs, setLoadingStockLogs] = useState(false);
+  const [selectedStockLogDate, setSelectedStockLogDate] = useState('');
+
+  const filteredStockLogs = useMemo(() => {
+    if (!selectedStockLogDate) return stockLogs;
+    return stockLogs.filter((log) => {
+      if (!log.createdAt) return false;
+      const d = new Date(log.createdAt);
+      if (isNaN(d.getTime())) return false;
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const logDateStr = `${year}-${month}-${day}`;
+      return logDateStr === selectedStockLogDate;
+    });
+  }, [stockLogs, selectedStockLogDate]);
+
+  const fetchStockLogs = async () => {
+    setLoadingStockLogs(true);
+    try {
+      const [stRes, ostRes] = await Promise.all([
+        stockingService.getStockLogs().catch(() => ({ data: [] })),
+        otherStockService.getStockLogs().catch(() => ({ data: [] }))
+      ]);
+
+      const stData = Array.isArray(stRes.data) ? stRes.data : [];
+      const ostData = Array.isArray(ostRes.data) ? ostRes.data : [];
+
+      const normalizedSt = stData.map((s) => ({
+        id: `st_${s.id}`,
+        rawId: s.id,
+        type: 'STOCK',
+        entryType: 'Add Stock',
+        category: s.category,
+        quantity: s.totalQuantity,
+        unit: s.unit || (s.category === 'MEDICINE' ? 'L' : 'kg'),
+        siteName: s.site?.siteName || 'Site',
+        createdAt: s.createdAt,
+        costPerKg: s.costPerKg
+      }));
+
+      const normalizedOst = ostData.map((o) => ({
+        id: `ost_${o.id}`,
+        rawId: o.id,
+        type: 'OTHER',
+        entryType: 'Other Stock',
+        category: o.category,
+        quantity: o.count,
+        unit: 'units',
+        siteName: o.site?.siteName || 'Site',
+        createdAt: o.createdAt,
+        notes: o.notes
+      }));
+
+      const combined = [...normalizedSt, ...normalizedOst].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      setStockLogs(combined);
+    } catch (err) {
+      console.error('Failed to fetch stock logs', err);
+    } finally {
+      setLoadingStockLogs(false);
+    }
+  };
+
+  const handleOpenStockLog = () => {
+    setSelectedStockLogDate('');
+    setIsStockLogOpen(true);
+    fetchStockLogs();
   };
 
 
@@ -436,6 +533,36 @@ export default function Stocking() {
     });
   }, [sites, stockings, tanks, tankSiteMap, feedLogs, medicineRecords]);
 
+  // Site Dropdown Options for Filter
+  const siteOptions = useMemo(() => [
+    { value: '', label: 'All Sites' },
+    ...(sites || []).map((s) => ({
+      value: String(s.id),
+      label: s.siteName || s.name || 'Site',
+    })),
+  ], [sites]);
+
+  // Selected site object if siteFilter is active
+  const selectedSite = useMemo(() => {
+    if (!selectedSiteFilter) return null;
+    return (sites || []).find((s) => String(s.id) === String(selectedSiteFilter)) || null;
+  }, [sites, selectedSiteFilter]);
+
+  // Filter site-wise stock inventory by selected site
+  const displayedSiteStockList = useMemo(() => {
+    if (!selectedSiteFilter) return siteWiseStockList;
+    return siteWiseStockList.filter((item) => String(item.site?.id) === String(selectedSiteFilter));
+  }, [siteWiseStockList, selectedSiteFilter]);
+
+  // Filter other stock items by selected site
+  const displayedOtherStocks = useMemo(() => {
+    if (!selectedSiteFilter) return otherStocks;
+    return otherStocks.filter((item) => {
+      const itemSiteId = String(item.siteId || item.site?.id || '');
+      return itemSiteId === String(selectedSiteFilter);
+    });
+  }, [otherStocks, selectedSiteFilter]);
+
   // Submit Handlers
   const handleAddStockSubmit = async (formData) => {
     setIsSubmitting(true);
@@ -515,15 +642,47 @@ export default function Stocking() {
         subtitle="Manage site-level stock inventory directly for feed and medicine."
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenTransferLog}
-              icon={<History className="w-4 h-4" />}
-              className="font-semibold shadow-xs border-primary/30 text-primary hover:bg-primary-light/50"
-            >
-              Transfer Log
-            </Button>
+            {/* Log Dropdown Menu (Transfer Log & Stock Log) */}
+            <div className="relative" ref={logMenuRef}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsLogMenuOpen((prev) => !prev)}
+                icon={<History className="w-4 h-4" />}
+                className="font-semibold shadow-xs border-primary/30 text-primary hover:bg-primary-light/50 flex items-center gap-1.5"
+                title="View Transfer or Stock Addition Logs"
+              >
+                <span>Log</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isLogMenuOpen ? 'rotate-180' : ''}`} />
+              </Button>
+
+              {isLogMenuOpen && (
+                <div className="absolute left-0 sm:right-0 sm:left-auto mt-1.5 w-44 bg-surface rounded-xl shadow-lg border border-border/80 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogMenuOpen(false);
+                      handleOpenTransferLog();
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-text-primary hover:bg-primary-light/60 hover:text-primary flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <ArrowRightLeft className="w-4 h-4 text-primary shrink-0" />
+                    <span>Transfer Log</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogMenuOpen(false);
+                      handleOpenStockLog();
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-text-primary hover:bg-primary-light/60 hover:text-primary flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <Boxes className="w-4 h-4 text-primary shrink-0" />
+                    <span>Stock Log</span>
+                  </button>
+                </div>
+              )}
+            </div>
             <Button
               variant="primary"
               size="sm"
@@ -582,28 +741,73 @@ export default function Stocking() {
           />
         </Card>
       ) : (
-        /* 2. SITE-WISE STOCK DASHBOARD CARDS */
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-border/60 pb-2">
-            <div>
-              <h3 className="font-bold text-base text-text-primary flex items-center gap-2">
-                <Boxes className="w-4.5 h-4.5 text-primary" /> Site-wise Stock Inventory
-              </h3>
-              <span className="text-xs text-text-secondary">Site-level Feed & Medicine inventory tracking</span>
+        <>
+          {/* SITE FILTER BAR */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface border border-border rounded-xl p-3.5 shadow-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 text-xs font-semibold text-text-primary select-none">
+                <Filter className="w-4 h-4 text-primary shrink-0" />
+                <span>Site Filter:</span>
+              </div>
+
+              <div className="w-48 sm:w-56">
+                <Select
+                  id="stock-site-filter"
+                  value={selectedSiteFilter}
+                  onChange={(e) => setSelectedSiteFilter(e.target.value)}
+                  options={siteOptions}
+                  placeholder=""
+                  fullWidth
+                />
+              </div>
+
+              {selectedSiteFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedSiteFilter('')}
+                  icon={<RotateCcw className="w-3.5 h-3.5 text-danger" />}
+                  className="text-xs text-danger font-medium hover:bg-danger-light/50 shrink-0"
+                  title="Reset Filter to All Sites"
+                >
+                  Reset
+                </Button>
+              )}
             </div>
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={handleOpenTransferLog}
-              icon={<History className="w-3.5 h-3.5" />}
-              className="font-semibold text-xs py-1 px-2.5 shadow-2xs border-primary/30 text-primary hover:bg-primary-light/50"
-            >
-              Log
-            </Button>
+
+            {selectedSiteFilter && selectedSite && (
+              <div className="text-xs text-text-secondary flex items-center gap-1.5">
+                <span>Showing:</span>
+                <span className="font-bold text-primary bg-primary-light/60 px-2.5 py-0.5 rounded-md border border-primary/20">
+                  {selectedSite.siteName}
+                </span>
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-            {siteWiseStockList.map(({ site, feed, medicine }) => {
+          {/* 2. SITE-WISE STOCK DASHBOARD CARDS */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2">
+              <div>
+                <h3 className="font-bold text-base text-text-primary flex items-center gap-2">
+                  <Boxes className="w-4.5 h-4.5 text-primary" /> Site-wise Stock Inventory
+                </h3>
+                <span className="text-xs text-text-secondary">Site-level Feed & Medicine inventory tracking</span>
+              </div>
+            </div>
+
+            {displayedSiteStockList.length === 0 ? (
+              <Card padding="relaxed" className="border-border/80 text-center py-8">
+                <EmptyState
+                  title="No stock records found for this site."
+                  description="There are no feed or medicine stock records available for the selected site."
+                  actionLabel="Reset to All Sites"
+                  onAction={() => setSelectedSiteFilter('')}
+                />
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                {displayedSiteStockList.map(({ site, feed, medicine }) => {
               const hasSiteStock = Boolean(feed || medicine);
 
               return (
@@ -790,15 +994,17 @@ export default function Stocking() {
                       </div>
                     ) : (
                       <div className="py-6 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
-                        No feed or medicine stock added to this site yet.
+                        No stock records found for this site.
                       </div>
                     )}
                   </div>
                 </Card>
               );
             })}
+              </div>
+            )}
           </div>
-        </div>
+        </>
       )}
 
       {/* 2.5 OTHER STOCK SECTION */}
@@ -810,26 +1016,21 @@ export default function Stocking() {
             </h3>
             <span className="text-xs text-text-secondary">Farm-level equipment and spare parts inventory</span>
           </div>
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={handleOpenTransferLog}
-            icon={<History className="w-3.5 h-3.5" />}
-            className="font-semibold text-xs py-1 px-2.5 shadow-2xs border-primary/30 text-primary hover:bg-primary-light/50"
-          >
-            Log
-          </Button>
         </div>
 
-        {otherStocks.length === 0 ? (
+        {displayedOtherStocks.length === 0 ? (
           <Card padding="relaxed" className="border-border/80 text-center py-6">
             <div className="text-xs text-text-secondary">
-              No farm or site-level equipment or parts added yet. Click <span className="font-semibold text-text-primary">[ + Other Stock ]</span> to add items.
+              {selectedSiteFilter ? (
+                'No stock records found for this site.'
+              ) : (
+                <>No farm or site-level equipment or parts added yet. Click <span className="font-semibold text-text-primary">[ + Other Stock ]</span> to add items.</>
+              )}
             </div>
           </Card>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {otherStocks.map((item) => {
+            {displayedOtherStocks.map((item) => {
               const itemSite = item.site || sites.find((s) => String(s.id) === String(item.siteId)) || sites[0];
               const isTransferred = Boolean(item.transfer?.fromSite?.siteName);
 
@@ -1421,6 +1622,132 @@ export default function Stocking() {
 
           <div className="flex justify-end pt-3 border-t border-border">
             <Button variant="outline" size="sm" onClick={() => setIsTransferLogOpen(false)}>
+              Close Log
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 15. STOCK LOG MODAL */}
+      <Modal
+        isOpen={isStockLogOpen}
+        onClose={() => setIsStockLogOpen(false)}
+        title="Site Stock Addition Log"
+        description="History of all feed, medicine, and other stock added directly to sites."
+        size="lg"
+      >
+        <div className="space-y-4 pt-2">
+          {/* Date Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-background/50 border border-border/70 rounded-xl">
+            <div className="flex items-center gap-2 text-xs font-semibold text-text-secondary">
+              <Filter className="w-4 h-4 text-primary" />
+              <span>Filter by Date:</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-40 sm:w-48">
+                <Input
+                  type="date"
+                  value={selectedStockLogDate}
+                  onChange={(e) => setSelectedStockLogDate(e.target.value)}
+                  className="text-xs py-1.5"
+                />
+              </div>
+              {selectedStockLogDate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedStockLogDate('')}
+                  className="text-xs text-text-secondary hover:text-danger h-9 px-2 shrink-0"
+                  icon={<X className="w-3.5 h-3.5" />}
+                >
+                  All Dates
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {loadingStockLogs ? (
+            <div className="py-8 flex justify-center items-center">
+              <Loader size="md" text="Loading stock addition history..." />
+            </div>
+          ) : stockLogs.length === 0 ? (
+            <div className="py-8 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
+              No stock additions recorded yet.
+            </div>
+          ) : filteredStockLogs.length === 0 ? (
+            <div className="py-8 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
+              No stock additions found for this date.
+            </div>
+          ) : (
+            <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+              {filteredStockLogs.map((log) => {
+                const dateStr = log.createdAt
+                  ? new Date(log.createdAt).toLocaleString('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true
+                    })
+                  : 'N/A';
+
+                return (
+                  <div
+                    key={log.id}
+                    className="p-3.5 rounded-xl border border-border/80 bg-surface shadow-2xs space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-md font-extrabold text-[10px] uppercase tracking-wider ${
+                            log.category === 'FEED'
+                              ? 'bg-teal-100 text-teal-800 border border-teal-200'
+                              : log.category === 'MEDICINE'
+                              ? 'bg-cyan-100 text-cyan-800 border border-cyan-200'
+                              : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                          }`}
+                        >
+                          {log.category}
+                        </span>
+                        <span className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-text-secondary" /> {dateStr}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider bg-background/80 px-2 py-0.5 rounded border border-border/50">
+                        {log.entryType}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-extrabold text-text-primary flex items-center gap-2">
+                          <span>
+                            {log.quantity} {log.unit ? `${log.unit} ` : ''}{log.category}
+                          </span>
+                        </div>
+                        <div className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-text-primary">Added to Site:</span>
+                          <span className="bg-emerald-100/70 px-2 py-0.5 rounded text-emerald-800 font-bold flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-emerald-700" />
+                            {log.siteName}
+                          </span>
+                          {log.notes && (
+                            <span className="text-[11px] text-text-secondary italic ml-2">
+                              ({log.notes})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-3 border-t border-border">
+            <Button variant="outline" size="sm" onClick={() => setIsStockLogOpen(false)}>
               Close Log
             </Button>
           </div>
