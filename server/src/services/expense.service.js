@@ -582,6 +582,8 @@ export const deleteExpense = async (
  * Labour
  * Maintenance
  * Salaries
+ * Transport
+ * Others
  */
 export const getExpenseCategories = async () => {
 

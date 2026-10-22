@@ -14,7 +14,8 @@ import {
     updateSiteStockAllocationController,
     deleteSiteStockAllocationController,
     transferStockController,
-    getStockTransfersController
+    getStockTransfersController,
+    getStockAdditionLogsController
 } from "../controllers/stocking.controller.js";
 
 import validate from "../middleware/validate.middleware.js";
@@ -119,6 +120,15 @@ router.get(
     "/transfers",
     auth,
     getStockTransfersController
+);
+
+/*
+ * Get Stock Addition Logs (Add Stock entries)
+ */
+router.get(
+    "/logs",
+    auth,
+    getStockAdditionLogsController
 );
 
 /*

@@ -1,14 +1,14 @@
 import { z } from "zod";
 
-const validCategories = ["Motors", "Aerators", "Spare Parts", "Generators"];
+const validCategories = ["Motors", "Aerators", "Spare Parts", "Generators", "Other"];
 
 /*
  * Create Other Stock Validation Schema
  */
 export const createOtherStockSchema = z.object({
-  category: z.enum(["Motors", "Aerators", "Spare Parts", "Generators"], {
+  category: z.enum(["Motors", "Aerators", "Spare Parts", "Generators", "Other"], {
     errorMap: () => ({
-      message: "Category must be one of: Motors, Aerators, Spare Parts, Generators"
+      message: "Category must be one of: Motors, Aerators, Spare Parts, Generators, Other"
     })
   }),
 
@@ -30,9 +30,9 @@ export const createOtherStockSchema = z.object({
  */
 export const updateOtherStockSchema = z.object({
   category: z
-    .enum(["Motors", "Aerators", "Spare Parts", "Generators"], {
+    .enum(["Motors", "Aerators", "Spare Parts", "Generators", "Other"], {
       errorMap: () => ({
-        message: "Category must be one of: Motors, Aerators, Spare Parts, Generators"
+        message: "Category must be one of: Motors, Aerators, Spare Parts, Generators, Other"
       })
     })
     .optional(),
@@ -62,9 +62,9 @@ export const transferOtherStockSchema = z.object({
     required_error: "Destination site is required"
   }).min(1, "Destination site is required"),
 
-  category: z.enum(["Motors", "Aerators", "Spare Parts", "Generators"], {
+  category: z.enum(["Motors", "Aerators", "Spare Parts", "Generators", "Other"], {
     errorMap: () => ({
-      message: "Category must be one of: Motors, Aerators, Spare Parts, Generators"
+      message: "Category must be one of: Motors, Aerators, Spare Parts, Generators, Other"
     })
   }),
 

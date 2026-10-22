@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,6 +9,7 @@ import { Select } from '../Select';
 import { Textarea } from '../Textarea';
 import { Button } from '../Button';
 import { useTanks } from '../../context/TankContext';
+import { useSites } from '../../context/SiteContext';
 
 // Zod Validation Schema matching backend contract (POST /api/harvests)
 const harvestSchema = z.object({
@@ -51,7 +52,7 @@ const harvestSchema = z.object({
 });
 
 /**
- * Reusable HarvestForm component with dynamic Tank dropdown from TankContext.
+ * Reusable HarvestForm component with dynamic Site -> Tank selection hierarchy from SiteContext & TankContext.
  * Supports Register Harvest and Edit Harvest operations.
  * Displays error messages cleanly in a highlighted banner if registration/edit fails.
  */
@@ -61,32 +62,55 @@ export const HarvestForm = ({
   onCancel,
   isSubmitting = false,
 }) => {
-  const { tanks = [] } = useTanks();
+  const { tanks = [], loading: tanksLoading } = useTanks();
+  const { sites = [], loading: sitesLoading } = useSites();
   const isEditing = Boolean(initialData?.id);
   const [formError, setFormError] = useState('');
+  const [selectedSiteId, setSelectedSiteId] = useState('');
 
-  // Clean tank labels without water source string or acreage
-  const tankSelectOptions = tanks.map((tank) => {
-    const rawName = tank.name || tank.tankName || 'Tank';
-    const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim();
-    const siteName = tank.site?.siteName || tank.site?.name || tank.siteName || '';
-    const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
-    return {
-      value: String(tank.id),
-      label,
-    };
-  });
+  // Map registered sites for dropdown selection
+  const siteSelectOptions = useMemo(() => {
+    return sites.map((site) => {
+      const rawName = site.siteName || site.name || 'Site';
+      const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
+      return {
+        value: String(site.id),
+        label: cleanName,
+      };
+    });
+  }, [sites]);
+
+  // Filter tanks belonging strictly to the selected Site
+  const filteredTanks = useMemo(() => {
+    if (!selectedSiteId) return [];
+    return tanks.filter((tank) => String(tank.siteId || tank.site?.id) === String(selectedSiteId));
+  }, [tanks, selectedSiteId]);
+
+  // Format Tank label as Tank Name — Site Name (e.g. T1 — Juvvalapalem) matching FeedForm
+  const tankSelectOptions = useMemo(() => {
+    return filteredTanks.map((tank) => {
+      const rawName = tank.name || tank.tankName || 'Tank';
+      const cleanName = rawName.replace(/\s*\([^)]*\)/g, '').trim() || rawName;
+      const siteName = tank.siteName || tank.site?.siteName || '';
+      const label = siteName ? `${cleanName} — ${siteName}` : cleanName;
+      return {
+        value: String(tank.id),
+        label,
+      };
+    });
+  }, [filteredTanks]);
 
   const {
     register,
     handleSubmit,
     reset,
     watch,
+    setValue,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(harvestSchema),
     defaultValues: {
-      tankId: tankSelectOptions.length > 0 ? tankSelectOptions[0].value : '',
+      tankId: '',
       harvestDate: new Date().toISOString().split('T')[0],
       harvestWeight: '',
       isFinalHarvest: false,
@@ -103,8 +127,13 @@ export const HarvestForm = ({
 
   useEffect(() => {
     if (initialData) {
+      const initTankId = initialData.tankId ? String(initialData.tankId) : '';
+      const matchingTank = tanks.find((t) => String(t.id) === initTankId);
+      const initSiteId = matchingTank?.siteId || matchingTank?.site?.id || initialData.siteId || initialData.tank?.siteId || '';
+      setSelectedSiteId(String(initSiteId));
+
       reset({
-        tankId: initialData.tankId ? String(initialData.tankId) : (tankSelectOptions[0]?.value || ''),
+        tankId: initTankId,
         harvestDate: initialData.harvestDate ? new Date(initialData.harvestDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         harvestWeight: initialData.harvestWeight || initialData.production || '',
         isFinalHarvest: initialData.harvestType === 'FINAL',
@@ -115,8 +144,9 @@ export const HarvestForm = ({
         notes: initialData.notes || '',
       });
     } else {
+      setSelectedSiteId('');
       reset({
-        tankId: tankSelectOptions[0]?.value || '',
+        tankId: '',
         harvestDate: new Date().toISOString().split('T')[0],
         harvestWeight: '',
         isFinalHarvest: false,
@@ -127,7 +157,23 @@ export const HarvestForm = ({
         notes: '',
       });
     }
-  }, [initialData, reset]);
+  }, [initialData, reset, tanks]);
+
+  // Handle site dropdown change and clear previously selected tank
+  const handleSiteChange = (e) => {
+    const newSiteId = e.target.value;
+    setSelectedSiteId(newSiteId);
+    setValue('tankId', '', { shouldValidate: true });
+  };
+
+  const isTankDisabled = isSubmitting || tanksLoading || !selectedSiteId || filteredTanks.length === 0;
+  const tankPlaceholder = !selectedSiteId
+    ? 'Choose site first...'
+    : tanksLoading
+      ? 'Loading tanks...'
+      : filteredTanks.length === 0
+        ? 'No tanks available for this site'
+        : 'Choose tank...';
 
   const handleFormSubmit = async (data) => {
     setFormError('');
@@ -181,18 +227,31 @@ export const HarvestForm = ({
           <Container className="w-3.5 h-3.5 text-primary" /> Basic Information
         </h4>
 
-        {/* Row 1: Tank & Harvest Date */}
+        {/* Row 1: Choose Site & Tank */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Select
+            label="Choose Site"
+            required={true}
+            placeholder={sitesLoading ? 'Loading sites...' : 'Choose site...'}
+            options={siteSelectOptions}
+            value={selectedSiteId}
+            onChange={handleSiteChange}
+            disabled={isSubmitting || sitesLoading}
+          />
+
           <Select
             label="Tank"
             required={true}
-            placeholder="Choose tank..."
+            placeholder={tankPlaceholder}
             options={tankSelectOptions}
+            disabled={isTankDisabled}
             error={errors.tankId?.message}
-            disabled={isSubmitting}
             {...register('tankId')}
           />
+        </div>
 
+        {/* Harvest Date */}
+        <div>
           <Input
             label="Harvest Date"
             type="date"

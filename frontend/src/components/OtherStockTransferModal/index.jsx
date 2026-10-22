@@ -3,7 +3,7 @@ import { ArrowRightLeft, AlertCircle, Wrench } from 'lucide-react';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
 
-const CATEGORY_OPTIONS = ['Generators', 'Spare Parts', 'Aerators', 'Motors'];
+const CATEGORY_OPTIONS = ['Generators', 'Spare Parts', 'Aerators', 'Motors', 'Other'];
 
 export function OtherStockTransferModal({
   isOpen,
@@ -106,7 +106,7 @@ export function OtherStockTransferModal({
           <label className="text-xs font-semibold text-text-primary tracking-wide block select-none">
             Category <span className="text-danger">*</span>
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
             {CATEGORY_OPTIONS.map((cat) => {
               const isSelected = category === cat;
               return (

@@ -6,6 +6,8 @@ export const EXPENSE_CATEGORY_OPTIONS = [
   { value: 'Labour', label: 'Labour' },
   { value: 'Maintenance', label: 'Maintenance' },
   { value: 'Salaries', label: 'Salaries' },
+  { value: 'Transport', label: 'Transport' },
+  { value: 'Others', label: 'Others' },
 ];
 
 export const PAYMENT_MODE_OPTIONS = [

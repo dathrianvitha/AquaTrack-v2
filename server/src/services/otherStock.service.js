@@ -667,5 +667,24 @@ export const getOtherStockTransfersService = async (userId) => {
   });
 };
 
+/*
+ * Get Direct Other Stock Addition Logs (Other Stock & Equipment entries)
+ */
+export const getOtherStockAdditionLogsService = async (userId) => {
+  const farm = await getUserFarm(userId);
+  return prisma.otherStock.findMany({
+    where: {
+      farmId: farm.id,
+      transferId: null
+    },
+    include: {
+      site: {
+        select: { id: true, siteName: true, location: true }
+      }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+};
+
 
 

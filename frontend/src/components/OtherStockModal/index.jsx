@@ -10,6 +10,7 @@ const CATEGORY_OPTIONS = [
   { value: 'Aerators', label: 'Aerators' },
   { value: 'Spare Parts', label: 'Spare Parts' },
   { value: 'Generators', label: 'Generators' },
+  { value: 'Other', label: 'Other' },
 ];
 
 /**

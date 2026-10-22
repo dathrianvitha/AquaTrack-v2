@@ -13,7 +13,8 @@ import {
   sendToRepairController,
   returnFromRepairController,
   deleteOtherStockRepairLogController,
-  getOtherStockTransfersController
+  getOtherStockTransfersController,
+  getOtherStockAdditionLogsController
 } from "../controllers/otherStock.controller.js";
 
 import {
@@ -45,6 +46,11 @@ router.post(
  * Get Other Stock Transfer Logs
  */
 router.get("/transfers", auth, getOtherStockTransfersController);
+
+/*
+ * Get Other Stock Addition Logs (Other Stock entries)
+ */
+router.get("/logs", auth, getOtherStockAdditionLogsController);
 
 /*
  * Transfer Other Stock item

@@ -916,4 +916,23 @@ export const getStockTransfersService = async (userId) => {
         },
         orderBy: { createdAt: "desc" }
     });
+};
+
+/*
+ * Get Direct Stock Addition Logs (Add Stock entries for Feed & Medicine)
+ */
+export const getStockAdditionLogsService = async (userId) => {
+    const farm = await getUserFarm(userId);
+    return prisma.stocking.findMany({
+        where: {
+            farmId: farm.id,
+            transferId: null
+        },
+        include: {
+            site: {
+                select: { id: true, siteName: true, location: true }
+            }
+        },
+        orderBy: { createdAt: "desc" }
+    });
 };
