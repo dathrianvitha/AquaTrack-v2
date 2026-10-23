@@ -60,6 +60,17 @@ export const deleteMedicine = async (id, password) => {
   }
 };
 
+export const getMedicineStockAvailability = async (siteId, medicineType) => {
+  try {
+    const response = await api.get('/medicines/stock-availability', {
+      params: { siteId, medicineType }
+    });
+    return response.data;
+  } catch (error) {
+    throw new Error(error.message || 'Failed to fetch medicine stock availability');
+  }
+};
+
 export const medicineService = {
   createMedicine,
   getMedicines,
@@ -67,6 +78,8 @@ export const medicineService = {
   getMedicineById,
   updateMedicine,
   deleteMedicine,
+  getMedicineStockAvailability,
 };
 
 export default medicineService;
+

@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { ArrowRightLeft, AlertCircle, Wrench } from 'lucide-react';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
-
-const CATEGORY_OPTIONS = ['Generators', 'Spare Parts', 'Aerators', 'Motors', 'Other'];
+import {
+  OTHER_STOCK_CATEGORIES,
+  OTHER_STOCK_SUBCATEGORIES,
+  normalizeOtherStockCategory
+} from '../../constants/otherStockCategories';
 
 export function OtherStockTransferModal({
   isOpen,
@@ -12,10 +15,12 @@ export function OtherStockTransferModal({
   fromSite,
   availableSites = [],
   siteOtherStockList = [], // Array of all Other Stock records at source site or across farm
-  initialCategory = 'Generators',
+  initialCategory = 'Water Pumping Motor',
+  initialSubcategory = '',
   isSubmitting = false
 }) {
-  const [category, setCategory] = useState('Generators');
+  const [category, setCategory] = useState('Water Pumping Motor');
+  const [subcategory, setSubcategory] = useState('');
   const [toSiteId, setToSiteId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -25,14 +30,25 @@ export function OtherStockTransferModal({
     (s) => String(s.id) !== String(fromSite?.id)
   );
 
-  // Determine available stock count for the selected category at the source site
+  // Subcategories for current category
+  const subcategoryList = OTHER_STOCK_SUBCATEGORIES[category] || [];
+  const hasSubcategories = subcategoryList.length > 0;
+
+  // Determine available stock count for the selected category & subcategory at the source site
   const availableCount = siteOtherStockList
     .filter(
       (item) =>
         (item.siteId && String(item.siteId) === String(fromSite?.id)) ||
         (item.site?.id && String(item.site.id) === String(fromSite?.id))
     )
-    .filter((item) => item.category === category)
+    .filter((item) => {
+      const normItemCat = normalizeOtherStockCategory(item.category);
+      if (normItemCat !== category) return false;
+      if (hasSubcategories) {
+        return item.subcategory === subcategory;
+      }
+      return true;
+    })
     .reduce((sum, item) => sum + (parseInt(item.count, 10) || 0), 0);
 
   // Reset modal state when opened
@@ -40,11 +56,57 @@ export function OtherStockTransferModal({
     if (isOpen) {
       setErrorMsg('');
       setQuantity('');
-      setCategory(initialCategory || 'Generators');
-      // To Site MUST NOT be automatically selected. Initially empty.
+      const normInitialCat = normalizeOtherStockCategory(initialCategory || 'Water Pumping Motor');
+      setCategory(normInitialCat);
+
+      const allowedSubs = OTHER_STOCK_SUBCATEGORIES[normInitialCat] || [];
+      if (allowedSubs.length > 0) {
+        if (initialSubcategory && allowedSubs.includes(initialSubcategory)) {
+          setSubcategory(initialSubcategory);
+        } else {
+          // Pre-select first subcategory that has stock at this site, or first option
+          const sourceSiteItems = siteOtherStockList.filter(
+            (item) =>
+              ((item.siteId && String(item.siteId) === String(fromSite?.id)) ||
+               (item.site?.id && String(item.site.id) === String(fromSite?.id))) &&
+              normalizeOtherStockCategory(item.category) === normInitialCat &&
+              (parseInt(item.count, 10) || 0) > 0
+          );
+          const firstWithStock = sourceSiteItems[0]?.subcategory;
+          setSubcategory(firstWithStock || allowedSubs[0]);
+        }
+      } else {
+        setSubcategory('');
+      }
+
+      // To Site initially empty
       setToSiteId('');
     }
-  }, [isOpen, fromSite?.id, initialCategory]);
+  }, [isOpen, fromSite?.id, initialCategory, initialSubcategory, siteOtherStockList]);
+
+  const handleCategorySelect = (cat) => {
+    setCategory(cat);
+    const allowedSubs = OTHER_STOCK_SUBCATEGORIES[cat] || [];
+    if (allowedSubs.length > 0) {
+      // Pick first subcategory with available stock at this site, or first in list
+      const sourceSiteItems = siteOtherStockList.filter(
+        (item) =>
+          ((item.siteId && String(item.siteId) === String(fromSite?.id)) ||
+           (item.site?.id && String(item.site.id) === String(fromSite?.id))) &&
+          normalizeOtherStockCategory(item.category) === cat &&
+          (parseInt(item.count, 10) || 0) > 0
+      );
+      const firstWithStock = sourceSiteItems[0]?.subcategory;
+      setSubcategory(firstWithStock || allowedSubs[0]);
+    } else {
+      setSubcategory('');
+    }
+    setErrorMsg('');
+  };
+
+  const itemDisplayName = hasSubcategories && subcategory
+    ? `${category} (${subcategory})`
+    : category;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -55,6 +117,11 @@ export function OtherStockTransferModal({
       return;
     }
 
+    if (hasSubcategories && !subcategory) {
+      setErrorMsg(`Please select a Subcategory for ${category}.`);
+      return;
+    }
+
     const numQty = Number(quantity);
     if (!quantity || isNaN(numQty) || !Number.isInteger(numQty) || numQty <= 0) {
       setErrorMsg('Transfer quantity must be a positive whole number (greater than 0).');
@@ -62,13 +129,13 @@ export function OtherStockTransferModal({
     }
 
     if (availableCount <= 0) {
-      setErrorMsg(`No ${category} stock available to transfer at ${fromSite?.siteName || 'source site'}.`);
+      setErrorMsg(`No ${itemDisplayName} stock available to transfer at ${fromSite?.siteName || 'source site'}.`);
       return;
     }
 
     if (numQty > availableCount) {
       setErrorMsg(
-        `Insufficient ${category} stock. Only ${availableCount} items available for transfer.`
+        `Insufficient ${itemDisplayName} stock. Only ${availableCount} items available for transfer.`
       );
       return;
     }
@@ -78,6 +145,7 @@ export function OtherStockTransferModal({
         fromSiteId: String(fromSite.id),
         toSiteId: String(toSiteId),
         category,
+        subcategory: hasSubcategories ? subcategory : null,
         count: numQty,
       });
     } catch (err) {
@@ -106,17 +174,14 @@ export function OtherStockTransferModal({
           <label className="text-xs font-semibold text-text-primary tracking-wide block select-none">
             Category <span className="text-danger">*</span>
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-            {CATEGORY_OPTIONS.map((cat) => {
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {OTHER_STOCK_CATEGORIES.map((cat) => {
               const isSelected = category === cat;
               return (
                 <button
                   key={cat}
                   type="button"
-                  onClick={() => {
-                    setCategory(cat);
-                    setErrorMsg('');
-                  }}
+                  onClick={() => handleCategorySelect(cat)}
                   className={`
                     p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 text-xs font-bold transition-all cursor-pointer text-center
                     ${isSelected
@@ -132,6 +197,43 @@ export function OtherStockTransferModal({
             })}
           </div>
         </div>
+
+        {/* 1.5 DYNAMIC SUBCATEGORY SELECTOR (ONLY IF CATEGORY HAS SUBCATEGORIES) */}
+        {hasSubcategories && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-text-primary tracking-wide block select-none">
+              Subcategory <span className="text-danger">*</span>
+            </label>
+            <select
+              value={subcategory}
+              onChange={(e) => {
+                setSubcategory(e.target.value);
+                setErrorMsg('');
+              }}
+              required
+              className="w-full bg-surface text-text-primary text-sm rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-primary/20 px-3.5 py-2.5 font-medium transition-all focus:outline-none"
+            >
+              <option value="">Select subcategory...</option>
+              {subcategoryList.map((sub) => {
+                const subAvail = siteOtherStockList
+                  .filter(
+                    (item) =>
+                      ((item.siteId && String(item.siteId) === String(fromSite?.id)) ||
+                       (item.site?.id && String(item.site.id) === String(fromSite?.id))) &&
+                      normalizeOtherStockCategory(item.category) === category &&
+                      item.subcategory === sub
+                  )
+                  .reduce((sum, item) => sum + (parseInt(item.count, 10) || 0), 0);
+
+                return (
+                  <option key={sub} value={sub}>
+                    {sub} ({subAvail} items available)
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
 
         {/* 2. FROM SITE (READ-ONLY) */}
         <div className="space-y-1.5">
@@ -179,12 +281,12 @@ export function OtherStockTransferModal({
         {/* 4. AVAILABLE STOCK DISPLAY */}
         <div className="p-3 rounded-xl bg-primary-light/30 border border-primary/20 flex items-center justify-between text-xs">
           <span className="font-semibold text-text-secondary uppercase text-[10px]">
-            Available {category}:
+            Available {itemDisplayName}:
           </span>
           <span className={`font-extrabold text-sm ${availableCount > 0 ? 'text-emerald-700' : 'text-danger'}`}>
             {availableCount > 0
               ? `${availableCount} items`
-              : `No ${category} available at source site.`
+              : `No ${itemDisplayName} available at source site.`
             }
           </span>
         </div>

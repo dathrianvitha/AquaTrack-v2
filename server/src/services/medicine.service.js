@@ -2,12 +2,14 @@ import prisma from "../config/prisma.js";
 
 import {
     getUserFarm,
-    getUserTank
+    getUserTank,
+    getUserSite
 } from "../utils/farm.helpers.js";
 
+import { MEDICINE_TYPES } from "../constants/medicineTypes.js";
 
 /*
- * Get Medicine Stock availability for a Site
+ * Get Medicine Stock availability for a Site and Medicine Type
  *
  * Total Medicine allocated to Site
  *              -
@@ -15,238 +17,234 @@ import {
  *              =
  * Remaining Medicine
  */
-const getSiteMedicineAvailability = async (
+export const getSiteMedicineAvailability = async (
     farmId,
     siteId,
-    excludeMedicineId = null
+    medicineType = null,
+    excludeMedicineId = null,
+    client = prisma
 ) => {
+
+    const directStockWhere = {
+        siteId,
+        farmId,
+        category: "MEDICINE"
+    };
+
+    const resolvedTypes = (medicineType === "White Gut Supplement" || medicineType === "White Cul Supplement")
+        ? ["White Gut Supplement", "White Cul Supplement"]
+        : (medicineType ? [medicineType] : null);
+
+    if (resolvedTypes) {
+        directStockWhere.medicineType = { in: resolvedTypes };
+    }
 
     /*
      * Get total MEDICINE added directly to this Site
      * plus legacy allocations.
      */
     const directStockResult =
-        await prisma.stocking.aggregate({
-            where: {
-                siteId,
-                farmId,
-                category: "MEDICINE"
-            },
+        await client.stocking.aggregate({
+            where: directStockWhere,
             _sum: {
                 totalQuantity: true
             }
         });
 
+    const allocationWhere = {
+        siteId,
+        stocking: {
+            farmId,
+            category: "MEDICINE",
+            ...(resolvedTypes ? { medicineType: { in: resolvedTypes } } : {})
+        }
+    };
+
     const allocationResult =
-        await prisma.siteStockAllocation.aggregate({
-
-            where: {
-
-                siteId,
-
-                stocking: {
-
-                    farmId,
-
-                    category: "MEDICINE"
-
-                }
-
-            },
-
+        await client.siteStockAllocation.aggregate({
+            where: allocationWhere,
             _sum: {
-
                 allocatedQuantity: true
-
             }
-
         });
-
 
     const allocatedMedicine =
         (directStockResult._sum.totalQuantity ?? 0) +
         (allocationResult._sum.allocatedQuantity ?? 0);
 
-
     /*
      * Get total Medicine already used
-     * at this Site.
+     * at this Site for this medicine type.
      */
     const medicineUsageWhere = {
-
         tank: {
-
             site: {
-
                 id: siteId,
-
                 farmId
-
             }
-
         }
-
     };
 
+    if (resolvedTypes) {
+        medicineUsageWhere.OR = [
+            { medicineType: { in: resolvedTypes } },
+            { medicineName: { in: resolvedTypes } }
+        ];
+    }
 
     /*
      * When updating an existing Medicine entry,
      * exclude that entry from the usage calculation.
      */
     if (excludeMedicineId) {
-
         medicineUsageWhere.id = {
-
             not: excludeMedicineId
-
         };
-
     }
 
-
     const usageResult =
-        await prisma.medicine.aggregate({
-
+        await client.medicine.aggregate({
             where: medicineUsageWhere,
-
             _sum: {
-
                 quantity: true
-
             }
-
         });
-
 
     const usedMedicine =
         usageResult._sum.quantity ?? 0;
 
-
     const remainingMedicine =
-        allocatedMedicine - usedMedicine;
+        Math.max(allocatedMedicine - usedMedicine, 0);
 
+    // Fetch unit for this medicine type from stocking
+    const stockRecord = await client.stocking.findFirst({
+        where: directStockWhere,
+        select: { unit: true },
+        orderBy: { createdAt: "desc" }
+    });
+    const unit = stockRecord?.unit || "kg";
 
     return {
-
         allocatedMedicine,
-
         usedMedicine,
-
-        remainingMedicine
-
+        remainingMedicine,
+        unit
     };
 
 };
 
+/*
+ * Get Medicine Stock Availability Service for API
+ */
+export const getMedicineStockAvailabilityService = async (
+    userId,
+    siteId,
+    medicineType
+) => {
+    const farm = await getUserFarm(userId);
+    const site = await getUserSite(farm.id, siteId);
+
+    const resolvedType = medicineType === "White Cul Supplement" ? "White Gut Supplement" : medicineType;
+    if (!resolvedType || !MEDICINE_TYPES.includes(resolvedType)) {
+        throw new Error(
+            `Invalid medicine type. Must be one of: ${MEDICINE_TYPES.join(", ")}`
+        );
+    }
+
+    const stock = await getSiteMedicineAvailability(farm.id, site.id, resolvedType);
+
+    return {
+        siteId: site.id,
+        siteName: site.siteName,
+        medicineType: resolvedType,
+        availableQuantity: stock.remainingMedicine,
+        remainingMedicine: stock.remainingMedicine,
+        allocatedMedicine: stock.allocatedMedicine,
+        usedMedicine: stock.usedMedicine,
+        unit: stock.unit
+    };
+};
 
 /*
- * Create Medicine
+ * Create Medicine with Atomic Stock Deduction
  */
 export const createMedicine = async (
     userId,
     medicineData
 ) => {
 
-    const farm =
-        await getUserFarm(userId);
+    const farm = await getUserFarm(userId);
 
+    const tank = await getUserTank(
+        farm.id,
+        medicineData.tankId
+    );
 
-    /*
-     * Verify that the Tank belongs
-     * to the logged-in user's Farm.
-     */
-    const tank =
-        await getUserTank(
-
-            farm.id,
-
-            medicineData.tankId
-
-        );
-
-
-    /*
-     * Check Medicine Stock available
-     * for this Tank's Site.
-     */
-    const stock =
-        await getSiteMedicineAvailability(
-
-            farm.id,
-
-            tank.siteId
-
-        );
-
-
-    /*
-     * Medicine must be allocated to
-     * the Site before it can be used.
-     */
-    if (
-        stock.allocatedMedicine <= 0
-    ) {
-
+    let medicineType = medicineData.medicineType || medicineData.medicineName;
+    if (medicineType === "White Cul Supplement") {
+        medicineType = "White Gut Supplement";
+    }
+    if (!medicineType || !MEDICINE_TYPES.includes(medicineType)) {
         throw new Error(
-            "No medicine stock has been allocated to this site."
+            `Invalid medicine type. Must be one of: ${MEDICINE_TYPES.join(", ")}`
         );
-
     }
 
-
-    /*
-     * Prevent Medicine usage from
-     * exceeding the remaining Site stock.
-     */
-    if (
-        medicineData.quantity >
-        stock.remainingMedicine
-    ) {
-
-        throw new Error(
-            `Insufficient medicine stock. Only ${stock.remainingMedicine} is remaining for this site.`
-        );
-
+    const parsedQuantity = parseFloat(medicineData.quantity);
+    if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
+        throw new Error("Quantity used must be greater than zero.");
     }
 
+    return await prisma.$transaction(async (tx) => {
+        /*
+         * Check Medicine Stock available inside the transaction
+         * to prevent concurrent requests from exceeding stock.
+         */
+        const stock =
+            await getSiteMedicineAvailability(
+                farm.id,
+                tank.siteId,
+                medicineType,
+                null,
+                tx
+            );
 
-    const medicine =
-        await prisma.medicine.create({
+        if (stock.allocatedMedicine <= 0) {
+            throw new Error(
+                `No stock available for ${medicineType} at this site.`
+            );
+        }
 
-            data: {
+        if (parsedQuantity > stock.remainingMedicine) {
+            throw new Error(
+                `Insufficient ${medicineType} stock. Only ${stock.remainingMedicine} ${stock.unit} is available for this site.`
+            );
+        }
 
-                tankId:
-                    tank.id,
+        const medicine =
+            await tx.medicine.create({
+                data: {
+                    tankId: tank.id,
+                    medicineName: medicineType,
+                    medicineType: medicineType,
+                    purpose: medicineData.purpose || "Water treatment",
+                    dosage: medicineData.dosage || "As required",
+                    quantity: parsedQuantity,
+                    cost: parseFloat(medicineData.cost) || 0,
+                    date: new Date(medicineData.date),
+                    notes: medicineData.notes ? medicineData.notes.trim() : null
+                },
+                include: {
+                    tank: {
+                        include: {
+                            site: true
+                        }
+                    }
+                }
+            });
 
-                medicineName:
-                    medicineData.medicineName,
-
-                purpose:
-                    medicineData.purpose,
-
-                dosage:
-                    medicineData.dosage,
-
-                quantity:
-                    medicineData.quantity,
-
-                cost:
-                    medicineData.cost,
-
-                date:
-                    new Date(
-                        medicineData.date
-                    ),
-
-                notes:
-                    medicineData.notes ?? null
-
-            }
-
-        });
-
-
-    return medicine;
+        return medicine;
+    });
 
 };
 
@@ -369,165 +367,106 @@ export const updateMedicine = async (
     medicineData
 ) => {
 
-    /*
-     * Verify the Medicine entry belongs
-     * to the logged-in user's Farm.
-     */
     const existingMedicine =
         await getMedicineById(
-
             userId,
-
             medicineId
-
         );
 
-
-    /*
-     * Get the user's Farm.
-     */
     const farm =
         await getUserFarm(userId);
 
-
-    /*
-     * Keep the existing Tank because
-     * changing tankId is not part of the
-     * current Medicine update functionality.
-     */
     const tank =
         await getUserTank(
-
             farm.id,
-
             existingMedicine.tank.id
-
         );
 
+    let medicineType =
+        medicineData.medicineType ||
+        medicineData.medicineName ||
+        existingMedicine.medicineType ||
+        existingMedicine.medicineName;
+    if (medicineType === "White Cul Supplement") {
+        medicineType = "White Gut Supplement";
+    }
 
-    /*
-     * Calculate the new quantity.
-     *
-     * If quantity is not supplied during
-     * update, keep the existing quantity.
-     */
     const newQuantity =
-        medicineData.quantity ??
-        existingMedicine.quantity;
+        medicineData.quantity !== undefined
+            ? parseFloat(medicineData.quantity)
+            : existingMedicine.quantity;
 
-
-    /*
-     * Exclude the current Medicine entry
-     * from the usage calculation.
-     *
-     * Example:
-     *
-     * Existing = 50 kg
-     * New      = 70 kg
-     *
-     * We first remove the old 50 kg from
-     * the usage calculation and then check
-     * the new 70 kg.
-     */
-    const stock =
-        await getSiteMedicineAvailability(
-
-            farm.id,
-
-            tank.siteId,
-
-            medicineId
-
-        );
-
-
-    /*
-     * Medicine must have been allocated
-     * to the Site.
-     */
-    if (
-        stock.allocatedMedicine <= 0
-    ) {
-
-        throw new Error(
-            "No medicine stock has been allocated to this site."
-        );
-
+    if (isNaN(newQuantity) || newQuantity <= 0) {
+        throw new Error("Quantity used must be greater than zero.");
     }
 
+    return await prisma.$transaction(async (tx) => {
+        const stock =
+            await getSiteMedicineAvailability(
+                farm.id,
+                tank.siteId,
+                medicineType,
+                medicineId,
+                tx
+            );
 
-    /*
-     * Prevent the updated quantity from
-     * exceeding available stock.
-     */
-    if (
-        newQuantity >
-        stock.remainingMedicine
-    ) {
+        if (stock.allocatedMedicine <= 0) {
+            throw new Error(
+                `No stock available for ${medicineType} at this site.`
+            );
+        }
 
-        throw new Error(
-            `Insufficient medicine stock. Only ${stock.remainingMedicine} is remaining for this site.`
-        );
+        if (newQuantity > stock.remainingMedicine) {
+            throw new Error(
+                `Insufficient ${medicineType} stock. Only ${stock.remainingMedicine} ${stock.unit} is remaining for this site.`
+            );
+        }
 
-    }
+        const updateData = {
+            ...(medicineData.medicineName || medicineData.medicineType
+                ? { medicineName: medicineType, medicineType }
+                : {}),
 
+            ...(medicineData.purpose !== undefined
+                ? { purpose: medicineData.purpose }
+                : {}),
 
-    /*
-     * Prepare only the fields that were
-     * provided for the update.
-     */
-    const updateData = {
+            ...(medicineData.dosage !== undefined
+                ? { dosage: medicineData.dosage }
+                : {}),
 
-        medicineName:
-            medicineData.medicineName ??
-            undefined,
+            quantity: newQuantity,
 
-        purpose:
-            medicineData.purpose ??
-            undefined,
+            ...(medicineData.cost !== undefined
+                ? { cost: parseFloat(medicineData.cost) }
+                : {}),
 
-        dosage:
-            medicineData.dosage ??
-            undefined,
+            ...(medicineData.date
+                ? { date: new Date(medicineData.date) }
+                : {}),
 
-        quantity:
-            newQuantity,
+            ...(medicineData.notes !== undefined
+                ? { notes: medicineData.notes ? medicineData.notes.trim() : null }
+                : {})
+        };
 
-        cost:
-            medicineData.cost ??
-            undefined,
+        const medicine =
+            await tx.medicine.update({
+                where: {
+                    id: medicineId
+                },
+                data: updateData,
+                include: {
+                    tank: {
+                        include: {
+                            site: true
+                        }
+                    }
+                }
+            });
 
-        date:
-            medicineData.date
-                ? new Date(
-                    medicineData.date
-                )
-                : undefined,
-
-        notes:
-            medicineData.notes ??
-            undefined
-
-    };
-
-
-    const medicine =
-        await prisma.medicine.update({
-
-            where: {
-
-                id:
-                    medicineId
-
-            },
-
-            data:
-                updateData
-
-        });
-
-
-    return medicine;
+        return medicine;
+    });
 
 };
 

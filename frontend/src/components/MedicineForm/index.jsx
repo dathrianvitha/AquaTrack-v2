@@ -11,16 +11,17 @@ import { Button } from '../Button';
 import { useTanks } from '../../context/TankContext';
 import { useSites } from '../../context/SiteContext';
 import { useStocking } from '../../context/StockingContext';
+import { MEDICINE_TYPES, MEDICINE_TYPE_OPTIONS, normalizeMedicineType } from '../../constants/medicineTypes';
+import { medicineService } from '../../services/medicineService';
 
 // Zod Validation Schema matching required frontend fields
 const medicineSchema = z.object({
   tankId: z
     .string()
     .min(1, 'Please select a Tank'),
-  medicineName: z
+  medicineType: z
     .string()
-    .min(1, 'Medicine Name is required')
-    .trim(),
+    .min(1, 'Please select a Medicine Type'),
   quantity: z
     .coerce
     .number({ invalid_type_error: 'Quantity must be a number' })
@@ -39,7 +40,7 @@ const medicineSchema = z.object({
 
 /**
  * Reusable MedicineForm component with dynamic Site -> Tank selection hierarchy from SiteContext & TankContext
- * and real-time Site Stock Availability indicator and validation.
+ * and real-time Site & Medicine Type Stock Availability indicator and validation.
  */
 export const MedicineForm = ({
   initialData = null,
@@ -54,6 +55,8 @@ export const MedicineForm = ({
   const isEditing = Boolean(initialData?.id);
 
   const [selectedSiteId, setSelectedSiteId] = useState('');
+  const [serverStock, setServerStock] = useState(null);
+  const [loadingStock, setLoadingStock] = useState(false);
 
   // Map registered sites for dropdown selection
   const siteSelectOptions = useMemo(() => {
@@ -98,7 +101,7 @@ export const MedicineForm = ({
     resolver: zodResolver(medicineSchema),
     defaultValues: {
       tankId: '',
-      medicineName: '',
+      medicineType: '',
       quantity: '',
       cost: '',
       date: new Date().toISOString().split('T')[0],
@@ -108,6 +111,7 @@ export const MedicineForm = ({
   });
 
   const selectedTankId = watch('tankId');
+  const selectedMedicineType = watch('medicineType');
   const quantityValue = watch('quantity');
   const enteredQuantity = parseFloat(quantityValue) || 0;
 
@@ -118,60 +122,104 @@ export const MedicineForm = ({
 
   const siteId = selectedTank?.siteId || selectedTank?.site?.id || selectedSiteId;
 
-  // Compute available medicine stock for selected site
+  // Fetch live stock availability for this site and medicine type from the server
+  useEffect(() => {
+    let isCancelled = false;
+    if (siteId && selectedMedicineType && MEDICINE_TYPES.includes(selectedMedicineType)) {
+      setLoadingStock(true);
+      medicineService
+        .getMedicineStockAvailability(siteId, selectedMedicineType)
+        .then((res) => {
+          if (!isCancelled && res?.data) {
+            setServerStock(res.data);
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) setServerStock(null);
+        })
+        .finally(() => {
+          if (!isCancelled) setLoadingStock(false);
+        });
+    } else {
+      setServerStock(null);
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [siteId, selectedMedicineType]);
+
+  // Compute available medicine stock for selected site and medicine type
   const siteMedicineStockInfo = useMemo(() => {
-    if (!siteId) return null;
+    if (!siteId || !selectedMedicineType) return null;
 
     let totalAdded = 0;
     let used = 0;
-    let unit = 'L';
+    let unit = 'kg';
 
     stockings.forEach((s) => {
       const isMedicine = s.category?.toUpperCase() === 'MEDICINE';
       const isDirectSite = s.siteId && String(s.siteId) === String(siteId);
+      const sType = normalizeMedicineType(s.medicineType);
+      const isTypeMatch = sType === selectedMedicineType;
 
-      if (isMedicine && isDirectSite) {
+      if (isMedicine && isDirectSite && isTypeMatch) {
         totalAdded += parseFloat(s.totalQuantity) || 0;
         used = parseFloat(s.totalUsed) || 0;
         if (s.unit) unit = s.unit;
-      } else if (isMedicine && Array.isArray(s.siteStock)) {
-        const alloc = s.siteStock.find((ss) => String(ss.site?.id || ss.siteId) === String(siteId));
-        if (alloc) {
-          totalAdded += parseFloat(alloc.allocatedQuantity) || 0;
-          used = parseFloat(alloc.usedQuantity) || 0;
-          if (alloc.unit || s.unit) unit = alloc.unit || s.unit;
-        }
       }
     });
 
-    const currentRecordQty = isEditing ? (parseFloat(initialData?.quantity) || 0) : 0;
-    const effectiveUsed = Math.max(used - currentRecordQty, 0);
-    const remaining = Math.max(totalAdded - effectiveUsed, 0);
+    const currentRecordQty =
+      isEditing &&
+      (normalizeMedicineType(initialData?.medicineType) === selectedMedicineType ||
+       normalizeMedicineType(initialData?.medicineName) === selectedMedicineType)
+        ? parseFloat(initialData?.quantity) || 0
+        : 0;
+
+    let remaining = 0;
+    if (serverStock && serverStock.medicineType === selectedMedicineType) {
+      remaining = Math.max((parseFloat(serverStock.availableQuantity) || 0) + currentRecordQty, 0);
+      unit = serverStock.unit || unit;
+      totalAdded = parseFloat(serverStock.allocatedMedicine) || 0;
+      used = parseFloat(serverStock.usedMedicine) || 0;
+    } else {
+      const effectiveUsed = Math.max(used - currentRecordQty, 0);
+      remaining = Math.max(totalAdded - effectiveUsed, 0);
+    }
+
     const matchingSite = sites.find((s) => String(s.id) === String(siteId));
-    const siteName = selectedTank?.site?.siteName || selectedTank?.siteName || matchingSite?.siteName || matchingSite?.name || 'this site';
+    const siteName =
+      selectedTank?.site?.siteName ||
+      selectedTank?.siteName ||
+      matchingSite?.siteName ||
+      matchingSite?.name ||
+      'this site';
 
     return {
+      medicineType: selectedMedicineType,
       totalAdded,
-      used: effectiveUsed,
+      used,
       remaining,
       unit,
       siteName,
-      hasStock: totalAdded > 0,
+      hasStock: remaining > 0,
     };
-  }, [siteId, stockings, selectedTank, isEditing, initialData, sites]);
+  }, [siteId, selectedMedicineType, stockings, selectedTank, isEditing, initialData, sites, serverStock]);
 
-  const isExcess = Boolean(siteMedicineStockInfo && siteMedicineStockInfo.hasStock && enteredQuantity > siteMedicineStockInfo.remaining);
-  const isNoStock = Boolean(siteMedicineStockInfo && !siteMedicineStockInfo.hasStock);
+  const isZeroStock = Boolean(siteMedicineStockInfo && siteMedicineStockInfo.remaining <= 0);
+  const isExcess = Boolean(siteMedicineStockInfo && enteredQuantity > siteMedicineStockInfo.remaining);
 
   const quantityErrorMessage = errors.quantity?.message || (
-    isExcess
-      ? `Only ${siteMedicineStockInfo.remaining} ${siteMedicineStockInfo.unit} of medicine is available for this site.`
-      : isNoStock && enteredQuantity > 0
-        ? `No medicine stock added for ${siteMedicineStockInfo.siteName} yet.`
-        : undefined
+    !selectedMedicineType
+      ? undefined
+      : isZeroStock && enteredQuantity > 0
+        ? `No stock available for ${selectedMedicineType} at ${siteMedicineStockInfo.siteName}.`
+        : isExcess
+          ? `Only ${siteMedicineStockInfo.remaining} ${siteMedicineStockInfo.unit} of ${selectedMedicineType} is available for this site.`
+          : undefined
   );
 
-  const isSubmitDisabled = isSubmitting || isExcess || (isNoStock && enteredQuantity > 0);
+  const isSubmitDisabled = isSubmitting || !selectedMedicineType || isZeroStock || isExcess;
 
   // Initialize or reset form values
   useEffect(() => {
@@ -181,19 +229,22 @@ export const MedicineForm = ({
       const initSiteId = matchingTank?.siteId || matchingTank?.site?.id ? String(matchingTank.siteId || matchingTank.site.id) : '';
       setSelectedSiteId(initSiteId);
 
+      const rawMedType = initialData.medicineType || initialData.medicineName || '';
+      const initMedType = normalizeMedicineType(rawMedType);
+
       reset({
         tankId: initTankId,
-        medicineName: initialData.medicineName || '',
+        medicineType: initMedType,
         quantity: initialData.quantity || '',
         cost: initialData.cost || '',
-        date: initialData.date || initialData.applicationDate || '',
+        date: initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : (initialData.applicationDate || ''),
         notes: initialData.notes || '',
       });
     } else {
       setSelectedSiteId('');
       reset({
         tankId: '',
-        medicineName: '',
+        medicineType: '',
         quantity: '',
         cost: '',
         date: new Date().toISOString().split('T')[0],
@@ -217,7 +268,7 @@ export const MedicineForm = ({
       : 'Select tank...';
 
   const handleFormSubmit = (data) => {
-    if (isExcess || (isNoStock && enteredQuantity > 0)) {
+    if (isExcess || isZeroStock || !data.medicineType) {
       return;
     }
 
@@ -227,11 +278,12 @@ export const MedicineForm = ({
 
     const medicinePayload = {
       tankId: data.tankId,
-      medicineName: data.medicineName.trim(),
+      medicineName: data.medicineType,
+      medicineType: data.medicineType,
       purpose: initialData?.purpose || 'Water treatment',
       dosage: initialData?.dosage || 'As required',
       quantity: parseFloat(data.quantity),
-      cost: parseFloat(data.cost),
+      cost: parseFloat(data.cost) || 0,
       date: data.date,
       notes: data.notes ? data.notes.trim() : '',
     };
@@ -300,14 +352,14 @@ export const MedicineForm = ({
           <Stethoscope className="w-3.5 h-3.5 text-primary" /> Treatment Details
         </h4>
         <div>
-          <Input
-            label="Medicine / Chemical Name"
-            type="text"
-            placeholder="e.g. Probiotic"
+          <Select
+            label="Medicine Type"
             required={true}
-            icon={<Stethoscope className="w-4 h-4" />}
-            error={errors.medicineName?.message}
-            {...register('medicineName')}
+            placeholder="Select medicine type..."
+            options={MEDICINE_TYPE_OPTIONS}
+            icon={<Stethoscope className="w-4 h-4 text-primary" />}
+            error={errors.medicineType?.message}
+            {...register('medicineType')}
           />
         </div>
       </div>
@@ -319,13 +371,11 @@ export const MedicineForm = ({
             <Package className="w-3.5 h-3.5" /> Quantity & Cost
           </h4>
 
-          {selectedTankId && siteMedicineStockInfo && (
+          {(selectedSiteId || selectedTankId) && selectedMedicineType && siteMedicineStockInfo && (
             <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-2xs ${
-              isExcess
+              isExcess || isZeroStock
                 ? 'bg-danger-light/60 border-danger/40 text-danger'
-                : isNoStock
-                  ? 'bg-amber-50 border-amber-200 text-amber-800'
-                  : 'bg-cyan-50 border-cyan-200 text-cyan-800'
+                : 'bg-cyan-50 border-cyan-200 text-cyan-800'
             }`}>
               Available: {siteMedicineStockInfo.remaining} {siteMedicineStockInfo.unit}
             </span>
@@ -333,21 +383,31 @@ export const MedicineForm = ({
         </div>
 
         {/* STOCK AVAILABILITY INDICATOR BADGE */}
-        {selectedTankId && siteMedicineStockInfo && (
+        {(selectedSiteId || selectedTankId) && selectedMedicineType && siteMedicineStockInfo && (
           <div className={`p-2.5 rounded-lg border text-xs flex items-center justify-between font-medium transition-colors ${
-            isExcess
-              ? 'bg-danger-light/30 border-danger/40 text-danger'
-              : isNoStock
-                ? 'bg-amber-50 border-amber-200 text-amber-800'
+            isZeroStock
+              ? 'bg-amber-50 border-amber-300 text-amber-900'
+              : isExcess
+                ? 'bg-danger-light/30 border-danger/40 text-danger'
                 : 'bg-cyan-50/80 border-cyan-200 text-cyan-800'
           }`}>
             <div className="flex items-center gap-2">
               <Stethoscope className="w-3.5 h-3.5 shrink-0" />
               <span>
-                Available Medicine Stock: <strong>{siteMedicineStockInfo.remaining} {siteMedicineStockInfo.unit}</strong>
+                Available <strong>{selectedMedicineType}</strong> Stock: <strong>{siteMedicineStockInfo.remaining} {siteMedicineStockInfo.unit}</strong>
               </span>
             </div>
             <span className="text-[10px] opacity-80">({siteMedicineStockInfo.siteName})</span>
+          </div>
+        )}
+
+        {/* ZERO STOCK ALERT */}
+        {(selectedSiteId || selectedTankId) && selectedMedicineType && isZeroStock && (
+          <div className="p-2.5 rounded-lg bg-danger-light/30 border border-danger/40 text-danger text-xs flex items-center gap-2 font-medium">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>
+              No stock available for {selectedMedicineType} at {siteMedicineStockInfo?.siteName || 'this site'}. You cannot record usage until stock is added in Stock Management.
+            </span>
           </div>
         )}
 
@@ -355,9 +415,10 @@ export const MedicineForm = ({
           <Input
             label="Quantity"
             type="number"
-            step="0.1"
+            step="0.01"
             placeholder="e.g. 5"
             required={true}
+            disabled={isZeroStock}
             icon={<Package className="w-4 h-4 text-primary" />}
             error={quantityErrorMessage}
             {...register('quantity')}

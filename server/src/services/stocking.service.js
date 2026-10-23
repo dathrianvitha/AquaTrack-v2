@@ -6,14 +6,17 @@ import {
 } from "../utils/farm.helpers.js";
 
 
+import { MEDICINE_TYPES } from "../constants/medicineTypes.js";
+
 /*
  * Calculate quantity already used
  * for a stocking category at a Site.
  */
-const getSiteStockUsage = async (
+export const getSiteStockUsage = async (
     farmId,
     siteId,
-    category
+    category,
+    medicineType = null
 ) => {
 
     if (category === "FEED") {
@@ -56,24 +59,36 @@ const getSiteStockUsage = async (
 
     if (category === "MEDICINE") {
 
+        const whereClause = {
+
+            tank: {
+
+                site: {
+
+                    id: siteId,
+
+                    farmId
+
+                }
+
+            }
+
+        };
+
+        if (medicineType) {
+            const types = (medicineType === "White Gut Supplement" || medicineType === "White Cul Supplement")
+                ? ["White Gut Supplement", "White Cul Supplement"]
+                : [medicineType];
+            whereClause.OR = [
+                { medicineType: { in: types } },
+                { medicineName: { in: types } }
+            ];
+        }
+
         const result =
             await prisma.medicine.aggregate({
 
-                where: {
-
-                    tank: {
-
-                        site: {
-
-                            id: siteId,
-
-                            farmId
-
-                        }
-
-                    }
-
-                },
+                where: whereClause,
 
                 _sum: {
 
@@ -108,6 +123,9 @@ export const createStocking = async (
         stockingData.siteId
     );
 
+    const isMedicine = stockingData.category === "MEDICINE";
+    const medType = isMedicine ? stockingData.medicineType : null;
+
     const stocking =
         await prisma.stocking.create({
 
@@ -116,11 +134,17 @@ export const createStocking = async (
                 category:
                     stockingData.category,
 
+                medicineType:
+                    medType,
+
+                notes:
+                    stockingData.notes ? stockingData.notes.trim() : null,
+
                 totalQuantity:
                     stockingData.totalQuantity,
 
                 unit:
-                    stockingData.unit ?? (stockingData.category === "MEDICINE" ? "L" : "kg"),
+                    stockingData.unit ?? (isMedicine ? "kg" : "kg"),
 
                 costPerKg:
                     stockingData.costPerKg ?? null,
@@ -236,7 +260,7 @@ export const getStockings = async (
         const targetSiteId = stocking.siteId || (stocking.allocations.length > 0 ? stocking.allocations[0].siteId : null);
 
         const totalUsed = targetSiteId
-            ? await getSiteStockUsage(farm.id, targetSiteId, stocking.category)
+            ? await getSiteStockUsage(farm.id, targetSiteId, stocking.category, stocking.medicineType)
             : 0;
 
         const totalAllocated = stocking.allocations.reduce(
@@ -253,7 +277,7 @@ export const getStockings = async (
 
         if (stocking.site) {
 
-            const usedQuantity = await getSiteStockUsage(farm.id, stocking.site.id, stocking.category);
+            const usedQuantity = await getSiteStockUsage(farm.id, stocking.site.id, stocking.category, stocking.medicineType);
 
             siteStock.push({
 
@@ -269,10 +293,15 @@ export const getStockings = async (
 
                 unit: stocking.unit,
 
+                medicineType: stocking.medicineType,
+
+                notes: stocking.notes,
+
                 transfer: stocking.transfer ? {
                     id: stocking.transfer.id,
                     fromSiteId: stocking.transfer.fromSiteId,
-                    fromSiteName: stocking.transfer.fromSite?.siteName
+                    fromSiteName: stocking.transfer.fromSite?.siteName,
+                    medicineType: stocking.transfer.medicineType
                 } : null
 
             });
@@ -281,7 +310,7 @@ export const getStockings = async (
 
             for (const allocation of stocking.allocations) {
 
-                const usedQuantity = await getSiteStockUsage(farm.id, allocation.siteId, stocking.category);
+                const usedQuantity = await getSiteStockUsage(farm.id, allocation.siteId, stocking.category, stocking.medicineType);
 
                 siteStock.push({
 
@@ -295,7 +324,11 @@ export const getStockings = async (
 
                     remainingQuantity: Math.max(allocation.allocatedQuantity - usedQuantity, 0),
 
-                    unit: stocking.unit
+                    unit: stocking.unit,
+
+                    medicineType: stocking.medicineType,
+
+                    notes: stocking.notes
 
                 });
 
@@ -309,6 +342,10 @@ export const getStockings = async (
             id: stocking.id,
 
             category: stocking.category,
+
+            medicineType: stocking.medicineType,
+
+            notes: stocking.notes,
 
             totalQuantity: stocking.totalQuantity,
 
@@ -333,7 +370,8 @@ export const getStockings = async (
                 fromSiteId: stocking.transfer.fromSiteId,
                 fromSiteName: stocking.transfer.fromSite?.siteName,
                 quantity: stocking.transfer.quantity,
-                unit: stocking.transfer.unit
+                unit: stocking.transfer.unit,
+                medicineType: stocking.transfer.medicineType
             } : null,
 
             totalAllocated: stocking.siteId ? stocking.totalQuantity : totalAllocated,
@@ -408,7 +446,7 @@ export const getStockingById = async (
     const targetSiteId = stocking.siteId || (stocking.allocations.length > 0 ? stocking.allocations[0].siteId : null);
 
     const totalUsed = targetSiteId
-        ? await getSiteStockUsage(farm.id, targetSiteId, stocking.category)
+        ? await getSiteStockUsage(farm.id, targetSiteId, stocking.category, stocking.medicineType)
         : 0;
 
     const totalAllocated = stocking.allocations.reduce(
@@ -485,6 +523,10 @@ export const updateStocking = async (userId, stockingId, stockingData) => {
             unit: stockingData.unit ? stockingData.unit.trim() : stocking.unit,
 
             ...(stockingData.costPerKg !== undefined ? { costPerKg: stockingData.costPerKg } : {}),
+
+            ...(stockingData.notes !== undefined ? { notes: stockingData.notes ? stockingData.notes.trim() : null } : {}),
+
+            ...(stockingData.medicineType && stocking.category === "MEDICINE" ? { medicineType: stockingData.medicineType } : {}),
 
             ...(stockingData.stockingDate ? { createdAt: new Date(stockingData.stockingDate) } : {})
 
@@ -567,6 +609,8 @@ export const deleteStocking = async (userId, stockingId) => {
 
                     category: stocking.category,
 
+                    ...(stocking.category === "MEDICINE" ? { medicineType: stocking.medicineType } : {}),
+
                     transferId: null
 
                 },
@@ -593,6 +637,8 @@ export const deleteStocking = async (userId, stockingId) => {
                     data: {
 
                         category: stocking.category,
+
+                        medicineType: stocking.medicineType,
 
                         totalQuantity: qtyToReturn,
 
@@ -811,7 +857,7 @@ export const deleteSiteStockAllocation = async (userId, allocationId) => {
  */
 export const transferStock = async (userId, transferData) => {
     const farm = await getUserFarm(userId);
-    const { fromSiteId, toSiteId, category, quantity } = transferData;
+    const { fromSiteId, toSiteId, category, quantity, medicineType } = transferData;
 
     if (!fromSiteId || !toSiteId) {
         throw new Error("Both source site and destination site are required.");
@@ -826,6 +872,12 @@ export const transferStock = async (userId, transferData) => {
         throw new Error("Stock category must be FEED or MEDICINE.");
     }
 
+    if (catUpper === "MEDICINE") {
+        if (!medicineType || !MEDICINE_TYPES.includes(medicineType)) {
+            throw new Error(`Medicine Type is required for Medicine transfer. Must be one of: ${MEDICINE_TYPES.join(", ")}`);
+        }
+    }
+
     const parsedQty = parseFloat(quantity);
     if (isNaN(parsedQty) || parsedQty <= 0) {
         throw new Error("Transfer quantity must be greater than 0.");
@@ -833,27 +885,45 @@ export const transferStock = async (userId, transferData) => {
 
     const fromSite = await getUserSite(farm.id, fromSiteId);
     const toSite = await getUserSite(farm.id, toSiteId);
-    const unit = catUpper === "MEDICINE" ? "L" : "kg";
+
+    const fromSiteStockingsWhere = {
+        farmId: farm.id,
+        siteId: fromSite.id,
+        category: catUpper
+    };
+
+    if (catUpper === "MEDICINE") {
+        if (medicineType === "White Gut Supplement" || medicineType === "White Cul Supplement") {
+            fromSiteStockingsWhere.medicineType = { in: ["White Gut Supplement", "White Cul Supplement"] };
+        } else {
+            fromSiteStockingsWhere.medicineType = medicineType;
+        }
+    }
 
     const fromSiteStockings = await prisma.stocking.findMany({
-        where: {
-            farmId: farm.id,
-            siteId: fromSite.id,
-            category: catUpper
-        },
+        where: fromSiteStockingsWhere,
         orderBy: { createdAt: "asc" }
     });
+
+    const unit = fromSiteStockings[0]?.unit || (catUpper === "MEDICINE" ? "kg" : "kg");
 
     const totalAddedAtFromSite = fromSiteStockings.reduce(
         (sum, s) => sum + s.totalQuantity,
         0
     );
-    const totalUsedAtFromSite = await getSiteStockUsage(farm.id, fromSite.id, catUpper);
+    const totalUsedAtFromSite = await getSiteStockUsage(
+        farm.id,
+        fromSite.id,
+        catUpper,
+        catUpper === "MEDICINE" ? medicineType : null
+    );
     const availableRemaining = Math.max(totalAddedAtFromSite - totalUsedAtFromSite, 0);
+
+    const itemLabel = catUpper === "MEDICINE" ? medicineType : "Feed";
 
     if (parsedQty > availableRemaining) {
         throw new Error(
-            `Insufficient ${catUpper === "FEED" ? "Feed" : "Medicine"} stock. Only ${availableRemaining} ${unit} is available for transfer.`
+            `Insufficient ${itemLabel} stock. Only ${availableRemaining} ${unit} is available for transfer.`
         );
     }
 
@@ -876,6 +946,7 @@ export const transferStock = async (userId, transferData) => {
         const transferLog = await tx.stockTransfer.create({
             data: {
                 category: catUpper,
+                medicineType: catUpper === "MEDICINE" ? medicineType : null,
                 quantity: parsedQty,
                 unit,
                 fromSiteId: fromSite.id,
@@ -887,6 +958,7 @@ export const transferStock = async (userId, transferData) => {
         await tx.stocking.create({
             data: {
                 category: catUpper,
+                medicineType: catUpper === "MEDICINE" ? medicineType : null,
                 totalQuantity: parsedQty,
                 unit,
                 siteId: toSite.id,
@@ -897,7 +969,7 @@ export const transferStock = async (userId, transferData) => {
 
         return {
             success: true,
-            message: `${parsedQty} ${unit} ${catUpper === "FEED" ? "Feed" : "Medicine"} transferred from ${fromSite.siteName} to ${toSite.siteName}.`,
+            message: `${parsedQty} ${unit} ${itemLabel} transferred from ${fromSite.siteName} to ${toSite.siteName}.`,
             data: transferLog
         };
     });

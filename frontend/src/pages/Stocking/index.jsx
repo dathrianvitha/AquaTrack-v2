@@ -48,6 +48,8 @@ import { useMedicine } from '../../context/MedicineContext';
 import { subscribeToSyncBus } from '../../utils/syncBus';
 import { stockingService } from '../../services/stockingService';
 import { otherStockService } from '../../services/otherStockService';
+import { normalizeMedicineType } from '../../constants/medicineTypes';
+import { normalizeOtherStockCategory } from '../../constants/otherStockCategories';
 
 export default function Stocking() {
   const {
@@ -97,6 +99,7 @@ export default function Stocking() {
   const [editingStock, setEditingStock] = useState(null);
   const [editingStockQuantity, setEditingStockQuantity] = useState('');
   const [editingStockingDate, setEditingStockingDate] = useState('');
+  const [editingStockNotes, setEditingStockNotes] = useState('');
   const [deletingStockId, setDeletingStockId] = useState(null);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [viewingStock, setViewingStock] = useState(null);
@@ -168,8 +171,9 @@ export default function Stocking() {
         rawId: s.id,
         type: 'STOCK',
         category: s.category,
+        medicineType: normalizeMedicineType(s.medicineType),
         quantity: s.quantity,
-        unit: s.unit || (s.category === 'MEDICINE' ? 'L' : 'kg'),
+        unit: s.unit || (s.category === 'MEDICINE' ? 'kg' : 'kg'),
         fromSiteName: s.fromSite?.siteName || 'Source Site',
         toSiteName: s.toSite?.siteName || 'Destination Site',
         createdAt: s.createdAt
@@ -179,9 +183,10 @@ export default function Stocking() {
         id: `ost_${o.id}`,
         rawId: o.id,
         type: 'OTHER',
-        category: o.category,
+        category: normalizeOtherStockCategory(o.category),
+        subcategory: o.subcategory || null,
         quantity: o.quantity,
-        unit: '',
+        unit: 'units',
         fromSiteName: o.fromSite?.siteName || 'Source Site',
         toSiteName: o.toSite?.siteName || 'Destination Site',
         createdAt: o.createdAt
@@ -242,11 +247,13 @@ export default function Stocking() {
         type: 'STOCK',
         entryType: 'Add Stock',
         category: s.category,
+        medicineType: normalizeMedicineType(s.medicineType),
         quantity: s.totalQuantity,
-        unit: s.unit || (s.category === 'MEDICINE' ? 'L' : 'kg'),
+        unit: s.unit || (s.category === 'MEDICINE' ? 'kg' : 'kg'),
         siteName: s.site?.siteName || 'Site',
         createdAt: s.createdAt,
-        costPerKg: s.costPerKg
+        costPerKg: s.costPerKg,
+        notes: s.notes
       }));
 
       const normalizedOst = ostData.map((o) => ({
@@ -254,7 +261,8 @@ export default function Stocking() {
         rawId: o.id,
         type: 'OTHER',
         entryType: 'Other Stock',
-        category: o.category,
+        category: normalizeOtherStockCategory(o.category),
+        subcategory: o.subcategory || null,
         quantity: o.count,
         unit: 'units',
         siteName: o.site?.siteName || 'Site',
@@ -439,31 +447,17 @@ export default function Stocking() {
         return sum;
       }, 0);
 
-      // Live Medicine usage sum directly from MedicineContext for 0ms instant frontend reflection
-      const liveMedicineUsed = medicineRecords.reduce((sum, m) => {
-        const recTankId = String(m.tankId || m.tank?.id || '');
-        const recSiteId = tankSiteMap[recTankId] || String(m.siteId || m.tank?.siteId || '');
-        if (recSiteId === siteIdStr) {
-          return sum + (parseFloat(m.quantity) || 0);
-        }
-        return sum;
-      }, 0);
-
       // Feed Stock Metrics for this Site
       let feedAdded = 0;
       let backendFeedUsed = 0;
       let feedUnit = 'kg';
       let feedStockId = null;
       let feedStockingDate = null;
+      let feedNotes = null;
       const feedItems = [];
 
-      // Medicine Stock Metrics for this Site
-      let medicineAdded = 0;
-      let backendMedicineUsed = 0;
-      let medicineUnit = 'L';
-      let medicineStockId = null;
-      let medicineStockingDate = null;
-      const medicineItems = [];
+      // Medicine Stock Metrics for this Site grouped by medicineType
+      const medicineTypeMap = {};
 
       stockings.forEach((s) => {
         const cat = s.category?.toUpperCase();
@@ -477,24 +471,44 @@ export default function Stocking() {
             feedUnit = s.unit || 'kg';
             if (!feedStockId) feedStockId = s.id;
             if (!feedStockingDate) feedStockingDate = s.stockingDate || s.createdAt;
+            if (s.notes && !feedNotes) feedNotes = s.notes;
             feedItems.push({
               id: s.id,
               totalQuantity: qty,
               unit: s.unit || 'kg',
               stockingDate: s.stockingDate || s.createdAt,
+              notes: s.notes,
               transfer: s.transfer || null
             });
           } else if (cat === 'MEDICINE') {
-            medicineAdded += qty;
-            backendMedicineUsed = Math.max(backendMedicineUsed, parseFloat(s.totalUsed) || 0);
-            medicineUnit = s.unit || 'L';
-            if (!medicineStockId) medicineStockId = s.id;
-            if (!medicineStockingDate) medicineStockingDate = s.stockingDate || s.createdAt;
-            medicineItems.push({
+            const rawMedType = s.medicineType || 'General';
+            const medType = normalizeMedicineType(rawMedType);
+            if (!medicineTypeMap[medType]) {
+              medicineTypeMap[medType] = {
+                medicineType: medType,
+                added: 0,
+                backendUsed: 0,
+                unit: s.unit || 'kg',
+                stockId: s.id,
+                stockingDate: s.stockingDate || s.createdAt,
+                notes: s.notes || null,
+                items: []
+              };
+            }
+            medicineTypeMap[medType].added += qty;
+            medicineTypeMap[medType].backendUsed = Math.max(
+              medicineTypeMap[medType].backendUsed,
+              parseFloat(s.totalUsed) || 0
+            );
+            if (s.unit) medicineTypeMap[medType].unit = s.unit;
+            if (s.notes && !medicineTypeMap[medType].notes) medicineTypeMap[medType].notes = s.notes;
+            medicineTypeMap[medType].items.push({
               id: s.id,
+              medicineType: medType,
               totalQuantity: qty,
-              unit: s.unit || 'L',
+              unit: s.unit || 'kg',
               stockingDate: s.stockingDate || s.createdAt,
+              notes: s.notes,
               transfer: s.transfer || null
             });
           }
@@ -502,33 +516,71 @@ export default function Stocking() {
       });
 
       const feedUsed = Math.max(liveFeedUsed, backendFeedUsed);
-      const medicineUsed = Math.max(liveMedicineUsed, backendMedicineUsed);
-
       const feedRemaining = Math.max(feedAdded - feedUsed, 0);
-      const medicineRemaining = Math.max(medicineAdded - medicineUsed, 0);
+
+      // Now compute live usage and remaining for each medicine type
+      const medicineStockByType = {};
+      const medicines = Object.keys(medicineTypeMap).map((medType) => {
+        const info = medicineTypeMap[medType];
+
+        // Live Medicine usage sum for this specific medicine type
+        const liveTypeUsed = medicineRecords.reduce((sum, m) => {
+          const recTankId = String(m.tankId || m.tank?.id || '');
+          const recSiteId = tankSiteMap[recTankId] || String(m.siteId || m.tank?.siteId || '');
+          if (recSiteId === siteIdStr) {
+            const mType = normalizeMedicineType(m.medicineType || m.medicineName);
+            const matchesType = (mType && mType === medType) ||
+                                (!mType && medType === 'General');
+            if (matchesType) {
+              return sum + (parseFloat(m.quantity) || 0);
+            }
+          }
+          return sum;
+        }, 0);
+
+        const used = Math.max(liveTypeUsed, info.backendUsed);
+        const remaining = Math.max(info.added - used, 0);
+
+        const medObj = {
+          id: info.stockId || info.items[0]?.id,
+          category: 'MEDICINE',
+          medicineType: info.medicineType,
+          added: info.added,
+          used,
+          remaining,
+          unit: info.unit,
+          stockingDate: info.stockingDate,
+          notes: info.notes,
+          siteName: site.siteName,
+          items: info.items,
+        };
+
+        medicineStockByType[medType] = {
+          remaining,
+          unit: info.unit,
+          added: info.added,
+          used
+        };
+
+        return medObj;
+      });
 
       return {
         site,
         feed: feedAdded > 0 || feedUsed > 0 || feedItems.length > 0 ? {
           id: feedStockId || feedItems[0]?.id,
+          category: 'FEED',
           added: feedAdded,
           used: feedUsed,
           remaining: feedRemaining,
           unit: feedUnit,
           stockingDate: feedStockingDate,
+          notes: feedNotes,
           siteName: site.siteName,
           items: feedItems,
         } : null,
-        medicine: medicineAdded > 0 || medicineUsed > 0 || medicineItems.length > 0 ? {
-          id: medicineStockId || medicineItems[0]?.id,
-          added: medicineAdded,
-          used: medicineUsed,
-          remaining: medicineRemaining,
-          unit: medicineUnit,
-          stockingDate: medicineStockingDate,
-          siteName: site.siteName,
-          items: medicineItems,
-        } : null,
+        medicines,
+        medicineStockByType,
       };
     });
   }, [sites, stockings, tanks, tankSiteMap, feedLogs, medicineRecords]);
@@ -595,6 +647,7 @@ export default function Stocking() {
         ? new Date(stockItem.stockingDate).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0]
     );
+    setEditingStockNotes(stockItem.notes || '');
   };
 
   const handleUpdateStockSubmit = async (e) => {
@@ -606,6 +659,7 @@ export default function Stocking() {
         totalQuantity: editingStockQuantity,
         unit: editingStock.unit,
         stockingDate: editingStockingDate,
+        notes: editingStockNotes,
       });
       setEditingStock(null);
     } finally {
@@ -807,8 +861,8 @@ export default function Stocking() {
               </Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                {displayedSiteStockList.map(({ site, feed, medicine }) => {
-              const hasSiteStock = Boolean(feed || medicine);
+                {displayedSiteStockList.map(({ site, feed, medicines = [], medicineStockByType = {} }) => {
+              const hasSiteStock = Boolean(feed || (medicines && medicines.length > 0));
 
               return (
                 <Card key={site.id} padding="normal" className="border-border/80 bg-surface shadow-xs flex flex-col justify-between">
@@ -834,9 +888,8 @@ export default function Stocking() {
                           onClick={() => setTransferSource({
                             site,
                             feedRemaining: feed?.remaining ?? 0,
-                            medicineRemaining: medicine?.remaining ?? 0,
                             feedUnit: feed?.unit || 'kg',
-                            medicineUnit: medicine?.unit || 'L',
+                            medicineStockByType,
                           })}
                           icon={<ArrowRightLeft className="w-3.5 h-3.5" />}
                           className="font-semibold text-xs py-1 px-2.5 shadow-2xs border-primary/30 text-primary hover:bg-primary-light/50"
@@ -920,13 +973,14 @@ export default function Stocking() {
                           </div>
                         ) : null}
 
-                        {/* MEDICINE STOCK BOX */}
-                        {medicine ? (
-                          <div className="p-3.5 rounded-xl bg-cyan-50/40 border border-cyan-200/60 space-y-2.5">
+                        {/* MEDICINE STOCK BOXES - INDEPENDENT PER MEDICINE TYPE */}
+                        {medicines.map((medicine) => (
+                          <div key={medicine.medicineType} className="p-3.5 rounded-xl bg-cyan-50/40 border border-cyan-200/60 space-y-2.5">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-extrabold text-cyan-900 flex items-center gap-1.5 uppercase tracking-wider">
-                                  <Stethoscope className="w-3.5 h-3.5 text-cyan-600" /> Medicine Stock
+                                  <Stethoscope className="w-3.5 h-3.5 text-cyan-600" />
+                                  {medicine.medicineType === 'General' ? 'Medicine Stock' : `Medicine — ${medicine.medicineType}`}
                                 </span>
                                 {medicine.stockingDate && (
                                   <span className="text-[10px] font-semibold text-cyan-800 bg-cyan-100/70 px-2 py-0.5 rounded-md flex items-center gap-1">
@@ -949,7 +1003,7 @@ export default function Stocking() {
                                     <button
                                       type="button"
                                       onClick={() => handleOpenEditStock({ ...medicine, category: 'MEDICINE' })}
-                                      title="Edit Medicine Stock"
+                                      title={`Edit ${medicine.medicineType} Stock`}
                                       className="p-1 text-text-secondary hover:text-primary rounded hover:bg-primary-light transition-colors cursor-pointer"
                                     >
                                       <Pencil className="w-3.5 h-3.5" />
@@ -957,7 +1011,7 @@ export default function Stocking() {
                                     <button
                                       type="button"
                                       onClick={() => setDeletingStockId(medicine.id)}
-                                      title="Delete Medicine Stock"
+                                      title={`Delete ${medicine.medicineType} Stock`}
                                       className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
@@ -990,7 +1044,7 @@ export default function Stocking() {
                               </div>
                             </div>
                           </div>
-                        ) : null}
+                        ))}
                       </div>
                     ) : (
                       <div className="py-6 text-center text-xs text-text-secondary bg-background/50 rounded-xl border border-dashed border-border/60">
@@ -1039,7 +1093,14 @@ export default function Stocking() {
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h4 className="font-bold text-sm text-text-primary">{item.category}</h4>
+                        <h4 className="font-bold text-sm text-text-primary">
+                          {normalizeOtherStockCategory(item.category)}
+                        </h4>
+                        {item.subcategory && (
+                          <span className="text-xs font-semibold text-primary block mt-0.5">
+                            {item.subcategory}
+                          </span>
+                        )}
                         {itemSite && (
                           <span className="text-[10px] font-semibold text-text-secondary flex items-center gap-1 mt-0.5">
                             <MapPin className="w-3 h-3 text-primary shrink-0" /> {itemSite.siteName}
@@ -1051,7 +1112,11 @@ export default function Stocking() {
                           <Button
                             variant="outline"
                             size="xs"
-                            onClick={() => setOtherStockTransferSource({ site: itemSite, initialCategory: item.category })}
+                            onClick={() => setOtherStockTransferSource({
+                              site: itemSite,
+                              initialCategory: normalizeOtherStockCategory(item.category),
+                              initialSubcategory: item.subcategory || ''
+                            })}
                             icon={<ArrowRightLeft className="w-3 h-3" />}
                             className="font-semibold text-[11px] py-1 px-2 border-primary/30 text-primary hover:bg-primary-light/50"
                             title={`Transfer ${item.category} from ${itemSite.siteName}`}
@@ -1059,6 +1124,14 @@ export default function Stocking() {
                             Transfer
                           </Button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setViewingOtherStock(item)}
+                          title="View Other Stock Details & Notes"
+                          className="p-1 text-text-secondary hover:text-primary rounded hover:bg-primary-light transition-colors cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -1076,7 +1149,7 @@ export default function Stocking() {
                             setDeletingOtherStockId(item.id);
                             setIsOtherStockPasswordOpen(true);
                           }}
-                          title={isTransferred ? `Delete Transferred Stock (Return ${item.count} ${item.category} to ${item.transfer.fromSite?.siteName})` : "Delete Other Stock"}
+                          title={isTransferred ? `Delete Transferred Stock (Return ${item.count} ${normalizeOtherStockCategory(item.category)} to ${item.transfer.fromSite?.siteName})` : "Delete Other Stock"}
                           className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1186,11 +1259,20 @@ export default function Stocking() {
         isOpen={Boolean(editingStock)}
         onClose={() => setEditingStock(null)}
         title={`Edit ${editingStock?.category === 'FEED' ? 'Feed' : 'Medicine'} Stock`}
-        description="Update total site stock inventory quantity and date."
+        description="Update total site stock inventory quantity, date, and notes."
         size="md"
       >
         {editingStock && (
           <form onSubmit={handleUpdateStockSubmit} className="space-y-4 pt-2">
+            {editingStock.category === 'MEDICINE' && (
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1">Medicine Type</label>
+                <div className="px-3 py-2 bg-background border border-border rounded-lg text-sm font-bold text-primary">
+                  {normalizeMedicineType(editingStock.medicineType) || 'General Medicine'}
+                </div>
+              </div>
+            )}
+
             <Input
               label="Stocking Date *"
               type="date"
@@ -1209,6 +1291,17 @@ export default function Stocking() {
               onChange={(e) => setEditingStockQuantity(e.target.value)}
               placeholder="e.g. 100"
             />
+
+            <div>
+              <label className="block text-xs font-semibold text-text-secondary mb-1">Notes (Optional)</label>
+              <textarea
+                value={editingStockNotes}
+                onChange={(e) => setEditingStockNotes(e.target.value)}
+                rows={2}
+                placeholder="Add any additional notes..."
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
               <Button
@@ -1251,6 +1344,14 @@ export default function Stocking() {
                   <span className="text-[10px] text-text-secondary uppercase font-semibold block">Category</span>
                   <span className="text-sm font-bold text-text-primary mt-0.5 block">{viewingStock.category}</span>
                 </div>
+                {viewingStock.category === 'MEDICINE' && (
+                  <div className="bg-surface p-3 rounded-lg border border-border/50 col-span-2">
+                    <span className="text-[10px] text-text-secondary uppercase font-semibold block">Medicine Type</span>
+                    <span className="text-sm font-bold text-primary mt-0.5 block">
+                      {normalizeMedicineType(viewingStock.medicineType) || 'General Medicine'}
+                    </span>
+                  </div>
+                )}
                 <div className="bg-surface p-3 rounded-lg border border-border/50 col-span-2">
                   <span className="text-[10px] text-text-secondary uppercase font-semibold block flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-primary" /> Stocking Date
@@ -1263,6 +1364,16 @@ export default function Stocking() {
                           year: 'numeric',
                         })
                       : 'N/A'}
+                  </span>
+                </div>
+                <div className="bg-surface p-3 rounded-lg border border-border/50 col-span-2">
+                  <span className="text-[10px] text-text-secondary uppercase font-semibold block">Notes</span>
+                  <span className="text-sm font-normal text-text-primary mt-0.5 block">
+                    {viewingStock.notes && viewingStock.notes.trim() ? (
+                      viewingStock.notes
+                    ) : (
+                      <span className="italic text-text-secondary">No notes added</span>
+                    )}
                   </span>
                 </div>
               </div>
@@ -1364,6 +1475,7 @@ export default function Stocking() {
         availableSites={sites}
         siteOtherStockList={otherStocks}
         initialCategory={otherStockTransferSource?.initialCategory}
+        initialSubcategory={otherStockTransferSource?.initialSubcategory}
         isSubmitting={isOtherStockTransferSubmitting}
       />
 
@@ -1381,7 +1493,7 @@ export default function Stocking() {
       <Modal
         isOpen={Boolean(viewingOtherStock)}
         onClose={() => setViewingOtherStock(null)}
-        title={`${viewingOtherStock?.category || 'Other Stock'} History & Details`}
+        title={`${normalizeOtherStockCategory(viewingOtherStock?.category) || 'Other Stock'} Details & History`}
         description={`Repair history and inventory details for ${viewingOtherStock?.site?.siteName || viewingOtherStock?.siteName || 'Site'}`}
         size="md"
       >
@@ -1395,7 +1507,23 @@ export default function Stocking() {
                 </div>
                 <div className="bg-surface p-3 rounded-lg border border-border/50">
                   <span className="text-[10px] text-text-secondary uppercase font-semibold block">Category</span>
-                  <span className="text-sm font-bold text-text-primary mt-0.5 block">{viewingOtherStock.category}</span>
+                  <span className="text-sm font-bold text-text-primary mt-0.5 block">{normalizeOtherStockCategory(viewingOtherStock.category)}</span>
+                </div>
+                {viewingOtherStock.subcategory && (
+                  <div className="bg-surface p-3 rounded-lg border border-border/50 col-span-2">
+                    <span className="text-[10px] text-text-secondary uppercase font-semibold block">Subcategory</span>
+                    <span className="text-sm font-bold text-primary mt-0.5 block">{viewingOtherStock.subcategory}</span>
+                  </div>
+                )}
+                <div className="bg-surface p-3 rounded-lg border border-border/50 col-span-2">
+                  <span className="text-[10px] text-text-secondary uppercase font-semibold block">Notes</span>
+                  <span className="text-sm font-normal text-text-primary mt-0.5 block">
+                    {viewingOtherStock.notes && viewingOtherStock.notes.trim() ? (
+                      viewingOtherStock.notes
+                    ) : (
+                      <span className="italic text-text-secondary">No notes added</span>
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1591,7 +1719,11 @@ export default function Stocking() {
                               : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                           }`}
                         >
-                          {log.category}
+                          {log.category === 'MEDICINE' && log.medicineType
+                            ? `MEDICINE — ${log.medicineType}`
+                            : log.subcategory
+                            ? `${log.category} — ${log.subcategory}`
+                            : log.category}
                         </span>
                         <span className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
                           <Calendar className="w-3 h-3 text-text-secondary" /> {dateStr}
@@ -1603,7 +1735,7 @@ export default function Stocking() {
                       <div className="space-y-0.5">
                         <div className="text-sm font-extrabold text-text-primary flex items-center gap-2">
                           <span>
-                            {log.quantity} {log.unit} {log.category}
+                            {log.quantity} {log.unit ? `${log.unit} ` : ''}{log.category === 'MEDICINE' && log.medicineType ? log.medicineType : log.subcategory ? `${log.category} (${log.subcategory})` : log.category}
                           </span>
                         </div>
                         <div className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">
@@ -1708,7 +1840,11 @@ export default function Stocking() {
                               : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                           }`}
                         >
-                          {log.category}
+                          {log.category === 'MEDICINE' && log.medicineType
+                            ? `MEDICINE — ${log.medicineType}`
+                            : log.subcategory
+                            ? `${log.category} — ${log.subcategory}`
+                            : log.category}
                         </span>
                         <span className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
                           <Calendar className="w-3 h-3 text-text-secondary" /> {dateStr}
@@ -1723,7 +1859,7 @@ export default function Stocking() {
                       <div className="space-y-0.5">
                         <div className="text-sm font-extrabold text-text-primary flex items-center gap-2">
                           <span>
-                            {log.quantity} {log.unit ? `${log.unit} ` : ''}{log.category}
+                            {log.quantity} {log.unit ? `${log.unit} ` : ''}{log.category === 'MEDICINE' && log.medicineType ? log.medicineType : log.subcategory ? `${log.category} (${log.subcategory})` : log.category}
                           </span>
                         </div>
                         <div className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">

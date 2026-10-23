@@ -3,6 +3,7 @@ import { UtensilsCrossed, Stethoscope, ArrowRightLeft, AlertCircle } from 'lucid
 import { Modal } from '../Modal';
 import { Button } from '../Button';
 import { Input } from '../Input';
+import { MEDICINE_TYPES } from '../../constants/medicineTypes';
 
 export function StockTransferModal({
   isOpen,
@@ -10,10 +11,11 @@ export function StockTransferModal({
   onSubmit,
   fromSite,
   availableSites = [],
-  siteStockInfo, // { feedRemaining, medicineRemaining, feedUnit, medicineUnit }
+  siteStockInfo, // { feedRemaining, medicineStockByType, initialCategory, initialMedicineType, feedUnit }
   isSubmitting = false
 }) {
   const [category, setCategory] = useState('FEED');
+  const [medicineType, setMedicineType] = useState('Rice Powder');
   const [toSiteId, setToSiteId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -23,12 +25,15 @@ export function StockTransferModal({
     (s) => String(s.id) !== String(fromSite?.id)
   );
 
-  // Determine available remaining stock for selected category at source site
+  // Determine available remaining stock and unit for selected category and medicineType
+  const selectedMedStock = siteStockInfo?.medicineStockByType?.[medicineType];
   const availableQty = category === 'FEED'
     ? (siteStockInfo?.feedRemaining ?? 0)
-    : (siteStockInfo?.medicineRemaining ?? 0);
+    : (selectedMedStock?.remaining ?? 0);
 
-  const unit = category === 'MEDICINE' ? 'L' : 'kg';
+  const unit = category === 'FEED'
+    ? (siteStockInfo?.feedUnit || 'kg')
+    : (selectedMedStock?.unit || 'kg');
 
   // Reset modal state when opened
   useEffect(() => {
@@ -36,19 +41,30 @@ export function StockTransferModal({
       setErrorMsg('');
       setQuantity('');
 
-      // Default category preference: if FEED has stock, default FEED; else if MEDICINE has stock, MEDICINE
-      if ((siteStockInfo?.feedRemaining ?? 0) > 0) {
+      const initCat = siteStockInfo?.initialCategory;
+      const initMedType = siteStockInfo?.initialMedicineType;
+
+      if (initCat) {
+        setCategory(initCat);
+      } else if ((siteStockInfo?.feedRemaining ?? 0) > 0) {
         setCategory('FEED');
-      } else if ((siteStockInfo?.medicineRemaining ?? 0) > 0) {
-        setCategory('MEDICINE');
       } else {
-        setCategory('FEED');
+        setCategory('MEDICINE');
       }
 
-      // Reset destination site selection to empty so user must explicitly choose
+      if (initMedType && MEDICINE_TYPES.includes(initMedType)) {
+        setMedicineType(initMedType);
+      } else {
+        // Pick first medicine type that has stock, or Rice Powder
+        const availableMedType = MEDICINE_TYPES.find(
+          (t) => (siteStockInfo?.medicineStockByType?.[t]?.remaining ?? 0) > 0
+        );
+        setMedicineType(availableMedType || MEDICINE_TYPES[0]);
+      }
+
       setToSiteId('');
     }
-  }, [isOpen, fromSite?.id]);
+  }, [isOpen, fromSite?.id, siteStockInfo]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -65,14 +81,16 @@ export function StockTransferModal({
       return;
     }
 
+    const itemLabel = category === 'FEED' ? 'Feed' : medicineType;
+
     if (availableQty <= 0) {
-      setErrorMsg(`No ${category === 'FEED' ? 'Feed' : 'Medicine'} stock available to transfer.`);
+      setErrorMsg(`No ${itemLabel} stock available to transfer.`);
       return;
     }
 
     if (numQty > availableQty) {
       setErrorMsg(
-        `Insufficient ${category === 'FEED' ? 'Feed' : 'Medicine'} stock. Only ${availableQty} ${unit} is available for transfer.`
+        `Insufficient ${itemLabel} stock. Only ${availableQty} ${unit} is available for transfer.`
       );
       return;
     }
@@ -82,6 +100,7 @@ export function StockTransferModal({
         fromSiteId: String(fromSite.id),
         toSiteId: String(toSiteId),
         category,
+        ...(category === 'MEDICINE' ? { medicineType } : {}),
         quantity: numQty,
       });
     } catch (err) {
@@ -149,6 +168,35 @@ export function StockTransferModal({
           </div>
         </div>
 
+        {/* 1.5 MEDICINE TYPE SELECTOR (ONLY IF MEDICINE) */}
+        {category === 'MEDICINE' && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-text-primary tracking-wide block select-none">
+              Medicine Type <span className="text-danger">*</span>
+            </label>
+            <select
+              value={medicineType}
+              onChange={(e) => {
+                setMedicineType(e.target.value);
+                setErrorMsg('');
+              }}
+              required
+              className="w-full bg-surface text-text-primary text-sm rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-primary/20 px-3.5 py-2.5 font-medium transition-all focus:outline-none"
+            >
+              {MEDICINE_TYPES.map((type) => {
+                const stockItem = siteStockInfo?.medicineStockByType?.[type];
+                const avail = stockItem?.remaining ?? 0;
+                const u = stockItem?.unit || 'kg';
+                return (
+                  <option key={type} value={type}>
+                    {type} ({avail} {u} available)
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+
         {/* 2. FROM SITE (READ-ONLY) */}
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-text-primary tracking-wide block select-none">
@@ -195,12 +243,12 @@ export function StockTransferModal({
         {/* 4. AVAILABLE STOCK DISPLAY */}
         <div className="p-3 rounded-xl bg-primary-light/30 border border-primary/20 flex items-center justify-between text-xs">
           <span className="font-semibold text-text-secondary uppercase text-[10px]">
-            Available {category === 'FEED' ? 'Feed' : 'Medicine'} Stock:
+            Available {category === 'FEED' ? 'Feed' : medicineType} Stock:
           </span>
           <span className={`font-extrabold text-sm ${availableQty > 0 ? 'text-emerald-700' : 'text-danger'}`}>
             {availableQty > 0
               ? `${availableQty} ${unit}`
-              : `No ${category === 'FEED' ? 'Feed' : 'Medicine'} stock available to transfer.`
+              : `No ${category === 'FEED' ? 'Feed' : medicineType} stock available to transfer.`
             }
           </span>
         </div>

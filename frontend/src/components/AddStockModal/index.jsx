@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Package, ShieldAlert, Scale, MapPin, Calendar } from 'lucide-react';
+import { Package, ShieldAlert, Scale, MapPin, Calendar, Stethoscope, FileText } from 'lucide-react';
 
 import { Input } from '../Input';
 import { Select } from '../Select';
+import { Textarea } from '../Textarea';
 import { Button } from '../Button';
 import { useSites } from '../../context/SiteContext';
+import { MEDICINE_TYPES, MEDICINE_TYPE_OPTIONS } from '../../constants/medicineTypes';
 
 const addStockSchema = z.object({
   siteId: z
@@ -17,6 +19,9 @@ const addStockSchema = z.object({
   category: z.enum(['FEED', 'MEDICINE'], {
     errorMap: () => ({ message: 'Please select a valid Stock Category' }),
   }),
+  medicineType: z
+    .string()
+    .optional(),
   stockingDate: z
     .string()
     .min(1, 'Please select a Stocking Date')
@@ -29,6 +34,19 @@ const addStockSchema = z.object({
     .string()
     .min(1, 'Unit is required')
     .trim(),
+  notes: z
+    .string()
+    .optional(),
+}).superRefine((data, ctx) => {
+  if (data.category === 'MEDICINE') {
+    if (!data.medicineType || !MEDICINE_TYPES.includes(data.medicineType)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['medicineType'],
+        message: 'Please select a Medicine Type',
+      });
+    }
+  }
 });
 
 const CATEGORY_OPTIONS = [
@@ -47,7 +65,10 @@ const UNIT_OPTIONS = [
 /**
  * Reusable AddStockForm component styled consistently with AquaTrack registration modals:
  * - Direct Site selection for site-level stock addition
- * - Category *, Total Quantity *, Unit * fields with icons & clear placeholders
+ * - Category * (Feed or Medicine)
+ * - Required Medicine Type dropdown when Medicine is selected
+ * - Total Quantity *, Unit *, Stocking Date * fields with icons & clear placeholders
+ * - Optional Notes textbox for both Feed and Medicine
  * - Bottom right action buttons: Cancel, Add Stock
  */
 export const AddStockForm = ({ onSubmit, onCancel, isSubmitting = false }) => {
@@ -70,31 +91,39 @@ export const AddStockForm = ({ onSubmit, onCancel, isSubmitting = false }) => {
     defaultValues: {
       siteId: sites.length > 0 ? sites[0].id : '',
       category: 'FEED',
+      medicineType: '',
       stockingDate: new Date().toISOString().split('T')[0],
       totalQuantity: '',
       unit: 'kg',
+      notes: '',
     },
     mode: 'onTouched',
   });
 
   const selectedCategory = watch('category');
 
-  // Auto-set unit default based on category if unchanged
+  // Auto-set unit default and reset medicineType if switched
   const handleCategoryChange = (e) => {
     const val = e.target.value;
-    setValue('category', val);
+    setValue('category', val, { shouldValidate: true });
     if (val === 'MEDICINE') {
-      setValue('unit', 'L');
+      setValue('unit', 'kg');
     } else {
       setValue('unit', 'kg');
+      setValue('medicineType', '');
     }
   };
 
   const handleFormSubmit = async (data) => {
     setFormError('');
     try {
+      const payload = {
+        ...data,
+        medicineType: data.category === 'MEDICINE' ? data.medicineType : undefined,
+        notes: data.notes ? data.notes.trim() : '',
+      };
       if (onSubmit) {
-        await onSubmit(data);
+        await onSubmit(payload);
       }
     } catch (err) {
       setFormError(err.message || 'Failed to add stock');
@@ -140,6 +169,20 @@ export const AddStockForm = ({ onSubmit, onCancel, isSubmitting = false }) => {
           value={selectedCategory}
         />
 
+        {/* Medicine Type (Visible ONLY when category is MEDICINE) */}
+        {selectedCategory === 'MEDICINE' && (
+          <Select
+            label="Medicine Type"
+            required={true}
+            placeholder="Select medicine type..."
+            options={MEDICINE_TYPE_OPTIONS}
+            error={errors.medicineType?.message}
+            disabled={isSubmitting}
+            icon={<Stethoscope className="w-4 h-4 text-primary" />}
+            {...register('medicineType')}
+          />
+        )}
+
         {/* Stocking Date */}
         <Input
           label="Stocking Date"
@@ -175,6 +218,18 @@ export const AddStockForm = ({ onSubmit, onCancel, isSubmitting = false }) => {
             disabled={isSubmitting}
             icon={<Scale className="w-4 h-4 text-primary" />}
             {...register('unit')}
+          />
+        </div>
+
+        {/* Optional Notes */}
+        <div>
+          <Textarea
+            label="Notes (Optional)"
+            placeholder="Add any additional stock details or notes..."
+            rows={2}
+            error={errors.notes?.message}
+            disabled={isSubmitting}
+            {...register('notes')}
           />
         </div>
       </div>

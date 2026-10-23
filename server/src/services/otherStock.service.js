@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import { getUserFarm } from "../utils/farm.helpers.js";
+import { normalizeOtherStockCategory } from "../constants/otherStockCategories.js";
 
 /*
  * Get all Other Stock records for logged-in user's farm
@@ -18,7 +19,9 @@ export const getOtherStocksService = async (userId) => {
 
   const groups = {};
   for (const item of allStocks) {
-    const key = `${item.siteId || 'no_site'}_${item.category.trim().toLowerCase()}`;
+    const normCat = normalizeOtherStockCategory(item.category).trim().toLowerCase();
+    const subKey = item.subcategory ? item.subcategory.trim().toLowerCase() : 'none';
+    const key = `${item.siteId || 'no_site'}_${normCat}_${subKey}`;
     if (!groups[key]) {
       groups[key] = [];
     }
@@ -58,7 +61,8 @@ export const getOtherStocksService = async (userId) => {
         where: { id: primary.id },
         data: {
           count: primary.count + extraCount,
-          underRepair: (primary.underRepair || 0) + extraUnderRepair
+          underRepair: (primary.underRepair || 0) + extraUnderRepair,
+          subcategory: primary.subcategory || duplicates.find((d) => d.subcategory)?.subcategory || null
         }
       });
     }
@@ -111,23 +115,33 @@ export const createOtherStockService = async (userId, data) => {
   const farm = await getUserFarm(userId);
   const targetSiteId = data.siteId || null;
   const countVal = parseInt(data.count, 10);
+  const normCategory = normalizeOtherStockCategory(data.category);
+  const subcategoryVal = data.subcategory ? data.subcategory.trim() : null;
 
-  // Merge into existing stock record for same category at this site if present
+  const categoryFilter = (normCategory === "Water Pumping Motor")
+    ? { in: ["Water Pumping Motor", "Motors"] }
+    : normCategory;
+
+  // Merge into existing stock record for same category and subcategory at this site if present
   const existing = await prisma.otherStock.findFirst({
     where: {
       farmId: farm.id,
       siteId: targetSiteId,
-      category: data.category
+      category: categoryFilter,
+      subcategory: subcategoryVal
     },
     orderBy: { createdAt: "asc" }
   });
 
   if (existing) {
+    const cleanNotes = (data.notes && data.notes.trim()) ? data.notes.trim() : existing.notes;
     return prisma.otherStock.update({
       where: { id: existing.id },
       data: {
         count: existing.count + countVal,
-        ...(data.notes ? { notes: data.notes } : {})
+        category: normCategory,
+        subcategory: subcategoryVal,
+        notes: cleanNotes
       },
       include: {
         site: {
@@ -142,9 +156,10 @@ export const createOtherStockService = async (userId, data) => {
 
   return prisma.otherStock.create({
     data: {
-      category: data.category,
+      category: normCategory,
+      subcategory: subcategoryVal,
       count: countVal,
-      notes: data.notes || null,
+      notes: (data.notes && data.notes.trim()) ? data.notes.trim() : null,
       siteId: targetSiteId,
       farmId: farm.id
     },
@@ -178,10 +193,26 @@ export const updateOtherStockService = async (userId, id, data) => {
   }
 
   const updateData = {};
-  if (data.category) updateData.category = data.category;
-  if (data.count !== undefined) updateData.count = parseInt(data.count, 10);
-  if (data.notes !== undefined) updateData.notes = data.notes || null;
-  if (data.siteId !== undefined) updateData.siteId = data.siteId || null;
+  if (data.category) {
+    updateData.category = normalizeOtherStockCategory(data.category);
+  }
+  if (data.subcategory !== undefined) {
+    updateData.subcategory = data.subcategory ? data.subcategory.trim() : null;
+  }
+  if (data.count !== undefined) {
+    updateData.count = parseInt(data.count, 10);
+  }
+  if (data.notes !== undefined) {
+    const clean = (typeof data.notes === "string") ? data.notes.trim() : "";
+    if (clean) {
+      updateData.notes = clean;
+    } else if (data.notes === null) {
+      updateData.notes = null;
+    }
+  }
+  if (data.siteId !== undefined) {
+    updateData.siteId = data.siteId || null;
+  }
 
   return prisma.otherStock.update({
     where: {
@@ -219,7 +250,7 @@ export const updateOtherStockService = async (userId, id, data) => {
 /*
  * Transfer Other Stock between sites (Atomic Transaction)
  */
-export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, category, count }) => {
+export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, category, subcategory, count }) => {
   const farm = await getUserFarm(userId);
 
   if (!fromSiteId || !toSiteId) {
@@ -235,6 +266,14 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
     throw new Error("Transfer quantity must be a positive whole number.");
   }
 
+  const normCategory = normalizeOtherStockCategory(category);
+  const subcategoryVal = subcategory ? subcategory.trim() : null;
+  const categoryFilter = (normCategory === "Water Pumping Motor")
+    ? { in: ["Water Pumping Motor", "Motors"] }
+    : normCategory;
+
+  const itemLabel = subcategoryVal ? `${normCategory} (${subcategoryVal})` : normCategory;
+
   // Verify both sites exist and belong to user's farm
   const [fromSite, toSite] = await Promise.all([
     prisma.site.findFirst({ where: { id: fromSiteId, farmId: farm.id } }),
@@ -249,11 +288,12 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
   }
 
   return prisma.$transaction(async (tx) => {
-    // Fetch all stock records for category at source site
+    // Fetch all stock records for category & subcategory at source site
     const sourceStocks = await tx.otherStock.findMany({
       where: {
         siteId: fromSiteId,
-        category,
+        category: categoryFilter,
+        subcategory: subcategoryVal,
         farmId: farm.id
       },
       orderBy: [
@@ -265,7 +305,7 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
     const totalAvailable = sourceStocks.reduce((sum, s) => sum + s.count, 0);
     if (totalAvailable < transferCount) {
       throw new Error(
-        `Insufficient ${category} stock at ${fromSite.siteName}. Available: ${totalAvailable}, requested: ${transferCount}.`
+        `Insufficient ${itemLabel} stock at ${fromSite.siteName}. Available: ${totalAvailable}, requested: ${transferCount}.`
       );
     }
 
@@ -292,7 +332,8 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
     // Create transfer log
     const transferLog = await tx.otherStockTransfer.create({
       data: {
-        category,
+        category: normCategory,
+        subcategory: subcategoryVal,
         quantity: transferCount,
         fromSiteId,
         toSiteId,
@@ -300,11 +341,12 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
       }
     });
 
-    // Check if an existing stock record for this category already exists at destination site
+    // Check if an existing stock record for this category & subcategory already exists at destination site
     const destStock = await tx.otherStock.findFirst({
       where: {
         siteId: toSiteId,
-        category,
+        category: categoryFilter,
+        subcategory: subcategoryVal,
         farmId: farm.id
       },
       orderBy: [
@@ -319,7 +361,9 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
       destinationStock = await tx.otherStock.update({
         where: { id: destStock.id },
         data: {
-          count: destStock.count + transferCount
+          count: destStock.count + transferCount,
+          category: normCategory,
+          subcategory: subcategoryVal
         },
         include: {
           site: { select: { id: true, siteName: true, location: true } },
@@ -336,7 +380,8 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
       // Create new stock record at destination site
       destinationStock = await tx.otherStock.create({
         data: {
-          category,
+          category: normCategory,
+          subcategory: subcategoryVal,
           count: transferCount,
           siteId: toSiteId,
           farmId: farm.id,
@@ -356,7 +401,7 @@ export const transferOtherStockService = async (userId, { fromSiteId, toSiteId, 
     }
 
     return {
-      message: `Successfully transferred ${transferCount} ${category} from ${fromSite.siteName} to ${toSite.siteName}.`,
+      message: `Successfully transferred ${transferCount} ${itemLabel} from ${fromSite.siteName} to ${toSite.siteName}.`,
       transfer: transferLog,
       destinationStock
     };
@@ -530,14 +575,20 @@ export const deleteOtherStockService = async (userId, id) => {
 
   // If this stock record was received via a transfer, reverse it automatically
   if (existing.transfer) {
-    const { fromSiteId, quantity, category } = existing.transfer;
+    const { fromSiteId, quantity, category, subcategory } = existing.transfer;
+    const normCategory = normalizeOtherStockCategory(category);
+    const categoryFilter = (normCategory === "Water Pumping Motor")
+      ? { in: ["Water Pumping Motor", "Motors"] }
+      : normCategory;
+    const subcategoryVal = subcategory || existing.subcategory || null;
 
     return prisma.$transaction(async (tx) => {
       // Find an existing direct (non-transferred) stock record at source site
       const sourceDirectStock = await tx.otherStock.findFirst({
         where: {
           siteId: fromSiteId,
-          category,
+          category: categoryFilter,
+          subcategory: subcategoryVal,
           farmId: farm.id,
           transferId: null
         }
@@ -552,7 +603,8 @@ export const deleteOtherStockService = async (userId, id) => {
         // Create new direct stock record at source site with restored count
         await tx.otherStock.create({
           data: {
-            category,
+            category: normCategory,
+            subcategory: subcategoryVal,
             count: quantity,
             siteId: fromSiteId,
             farmId: farm.id
@@ -570,9 +622,10 @@ export const deleteOtherStockService = async (userId, id) => {
         where: { id: existing.transfer.id }
       });
 
+      const itemLabel = subcategoryVal ? `${normCategory} (${subcategoryVal})` : normCategory;
       return {
         success: true,
-        message: `Transferred ${category} stock deleted. ${quantity} ${category} returned to original source site.`
+        message: `Transferred ${itemLabel} stock deleted. ${quantity} ${itemLabel} returned to original source site.`
       };
     });
   }

@@ -10,7 +10,8 @@ import {
     getMedicineByIdController,
     updateMedicineController,
     deleteMedicineController,
-    getMedicineSummaryController
+    getMedicineSummaryController,
+    getMedicineStockAvailabilityController
 } from "../controllers/medicine.controller.js";
 
 import {
@@ -31,6 +32,12 @@ router.get(
     "/",
     auth,
     getMedicinesController
+);
+
+router.get(
+    "/stock-availability",
+    auth,
+    getMedicineStockAvailabilityController
 );
 
 router.get(
