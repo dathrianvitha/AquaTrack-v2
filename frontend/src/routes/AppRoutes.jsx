@@ -18,6 +18,7 @@ import PondLeaseManagement from '../pages/PondLeaseManagement';
 import Harvest from '../pages/Harvest';
 import Reports from '../pages/Reports';
 import NettingManagement from '../pages/NettingManagement';
+import HistoricalRecords from '../pages/HistoricalRecords';
 import NotFound from '../pages/NotFound';
 
 import DashboardLayout from '../layouts/DashboardLayout';
@@ -48,6 +49,7 @@ const AppRoutes = () => {
           <Route path="/pond-lease" element={<PondLeaseManagement />} />
           <Route path="/harvest" element={<Harvest />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/historical-records" element={<HistoricalRecords />} />
         </Route>
       </Route>
 

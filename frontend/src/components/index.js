@@ -39,4 +39,6 @@ export { MedicineDetailsModal } from './MedicineDetailsModal';
 export { AddStockForm } from './AddStockModal';
 export { AllocateStockForm } from './AllocateStockModal';
 export { OtherStockRepairModal } from './OtherStockRepairModal';
+export { HistoricalImportModal } from './HistoricalImportModal';
+export { DeleteImportedRecordsModal } from './DeleteImportedRecordsModal';
 
