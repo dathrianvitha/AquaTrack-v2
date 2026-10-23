@@ -609,7 +609,7 @@ export const deleteStocking = async (userId, stockingId) => {
 
                     category: stocking.category,
 
-                    ...(stocking.category === "MEDICINE" ? { medicineType: stocking.medicineType } : {}),
+                    ...(stocking.category === "MEDICINE" && stocking.medicineType ? { medicineType: stocking.medicineType } : {}),
 
                     transferId: null
 
@@ -892,7 +892,7 @@ export const transferStock = async (userId, transferData) => {
         category: catUpper
     };
 
-    if (catUpper === "MEDICINE") {
+    if (catUpper === "MEDICINE" && medicineType) {
         if (medicineType === "White Gut Supplement" || medicineType === "White Cul Supplement") {
             fromSiteStockingsWhere.medicineType = { in: ["White Gut Supplement", "White Cul Supplement"] };
         } else {
@@ -919,7 +919,7 @@ export const transferStock = async (userId, transferData) => {
     );
     const availableRemaining = Math.max(totalAddedAtFromSite - totalUsedAtFromSite, 0);
 
-    const itemLabel = catUpper === "MEDICINE" ? medicineType : "Feed";
+    const itemLabel = catUpper === "MEDICINE" ? (medicineType || "Medicine") : "Feed";
 
     if (parsedQty > availableRemaining) {
         throw new Error(

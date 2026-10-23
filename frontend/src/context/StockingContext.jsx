@@ -58,6 +58,8 @@ export const StockingProvider = ({ children }) => {
       unit: stockData.unit ? stockData.unit.trim() : 'kg',
       medicineType: stockData.medicineType || undefined,
       notes: stockData.notes ? stockData.notes.trim() : undefined,
+      stockingDate: stockData.stockingDate || undefined,
+      costPerKg: stockData.costPerKg !== undefined && stockData.costPerKg !== '' ? parseFloat(stockData.costPerKg) : undefined,
     };
 
     try {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MEDICINE_TYPES } from "../constants/medicineTypes.js";
+import { MEDICINE_TYPES, ALL_VALID_MEDICINE_TYPES } from "../constants/medicineTypes.js";
 
 /*
  * Create Site-Level Stock
@@ -55,15 +55,14 @@ export const createStockingSchema = z.object({
 }).superRefine((data, ctx) => {
 
     /*
-     * When Medicine is selected, Medicine Type is required
-     * and must match one of the 8 allowed types.
+     * When Medicine is selected, validate Medicine Type if provided.
      */
-    if (data.category === "MEDICINE") {
-        if (!data.medicineType || !MEDICINE_TYPES.includes(data.medicineType)) {
+    if (data.category === "MEDICINE" && data.medicineType) {
+        if (!ALL_VALID_MEDICINE_TYPES.includes(data.medicineType)) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ["medicineType"],
-                message: `Medicine Type is required. Must be one of: ${MEDICINE_TYPES.join(", ")}`
+                message: `Medicine Type must be one of: ${MEDICINE_TYPES.join(", ")}`
             });
         }
     }
