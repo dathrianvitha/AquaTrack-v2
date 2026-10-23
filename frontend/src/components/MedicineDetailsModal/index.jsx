@@ -2,6 +2,7 @@ import React from 'react';
 import { Stethoscope, Container, Calendar, Scale, IndianRupee, Edit3, Trash2, FileText, Pill } from 'lucide-react';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
+import { normalizeMedicineType } from '../../constants/medicineTypes';
 
 /**
  * Redesigned MedicineDetailsModal component featuring clean visual sectioning:
@@ -29,7 +30,7 @@ export const MedicineDetailsModal = ({
     notes,
   } = record;
 
-  const displayMedName = medicineName || 'Treatment Record';
+  const displayMedName = normalizeMedicineType(record?.medicineType || medicineName) || 'Treatment Record';
 
   // Format tank name and site name cleanly: e.g. "K1 — Juvvalapalem"
   const rawTank = tankName || record?.tank?.name || record?.tank?.tankName || 'Not assigned';

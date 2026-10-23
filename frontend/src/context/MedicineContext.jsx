@@ -71,9 +71,11 @@ export const MedicineProvider = ({ children }) => {
   }, [fetchMedicineRecords]);
 
   const addMedicineRecord = async (newRecordData) => {
+    const medType = newRecordData.medicineType || newRecordData.medicineName;
     const payload = {
       tankId: newRecordData.tankId,
-      medicineName: newRecordData.medicineName,
+      medicineName: medType,
+      medicineType: medType,
       purpose: newRecordData.purpose || 'Health treatment',
       dosage: String(newRecordData.dosage),
       quantity: parseFloat(newRecordData.quantity || 1),
@@ -99,8 +101,9 @@ export const MedicineProvider = ({ children }) => {
 
   const updateMedicineRecord = async (id, updatedData) => {
     const targetId = String(id);
+    const medType = updatedData.medicineType || updatedData.medicineName;
     const payload = {
-      ...(updatedData.medicineName ? { medicineName: updatedData.medicineName } : {}),
+      ...(medType ? { medicineName: medType, medicineType: medType } : {}),
       ...(updatedData.purpose ? { purpose: updatedData.purpose } : {}),
       ...(updatedData.dosage !== undefined ? { dosage: String(updatedData.dosage) } : {}),
       ...(updatedData.quantity !== undefined ? { quantity: parseFloat(updatedData.quantity) } : {}),

@@ -1,24 +1,59 @@
 import { z } from "zod";
+import { MEDICINE_TYPES, ALL_VALID_MEDICINE_TYPES } from "../constants/medicineTypes.js";
 
-export const createMedicineSchema = z.object({
+const baseMedicineSchema = z.object({
 
     tankId: z.string().min(1, "Tank is required"),
 
-    medicineName: z.string().min(2),
+    medicineType: z.enum(MEDICINE_TYPES, {
+        errorMap: () => ({
+            message: `Medicine Type must be one of: ${MEDICINE_TYPES.join(", ")}`
+        })
+    }).optional(),
 
-    purpose: z.string().min(2),
+    medicineName: z.string().min(1, "Medicine Name is required"),
 
-    dosage: z.string().min(1),
+    purpose: z.string().optional().default("Water treatment"),
 
-    quantity: z.number().positive(),
+    dosage: z.string().optional().default("As required"),
 
-    cost: z.number().positive(),
+    quantity: z.number().positive("Quantity used must be greater than zero"),
 
-    date: z.string(),
+    cost: z.number().min(0, "Cost cannot be negative"),
 
-    notes: z.string().optional()
+    date: z.string().min(1, "Date is required"),
+
+    notes: z.string().optional().nullable()
 
 });
 
-export const updateMedicineSchema =
-    createMedicineSchema.partial();
+export const createMedicineSchema = baseMedicineSchema.superRefine((data, ctx) => {
+    const resolvedType = data.medicineType || data.medicineName;
+    if (!MEDICINE_TYPES.includes(resolvedType)) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["medicineType"],
+            message: `Medicine Type must be one of: ${MEDICINE_TYPES.join(", ")}`
+        });
+    }
+});
+
+export const updateMedicineSchema = z.object({
+
+    medicineType: z.enum(ALL_VALID_MEDICINE_TYPES).optional(),
+
+    medicineName: z.string().optional(),
+
+    purpose: z.string().optional(),
+
+    dosage: z.string().optional(),
+
+    quantity: z.number().positive("Quantity used must be greater than zero").optional(),
+
+    cost: z.number().min(0, "Cost cannot be negative").optional(),
+
+    date: z.string().optional(),
+
+    notes: z.string().optional().nullable()
+
+});

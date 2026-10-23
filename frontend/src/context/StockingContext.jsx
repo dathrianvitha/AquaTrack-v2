@@ -56,6 +56,8 @@ export const StockingProvider = ({ children }) => {
       category: stockData.category.toUpperCase(),
       totalQuantity: parseFloat(stockData.totalQuantity),
       unit: stockData.unit ? stockData.unit.trim() : 'kg',
+      medicineType: stockData.medicineType || undefined,
+      notes: stockData.notes ? stockData.notes.trim() : undefined,
     };
 
     try {
@@ -123,6 +125,7 @@ export const StockingProvider = ({ children }) => {
     const payload = {
       totalQuantity: parseFloat(stockData.totalQuantity),
       unit: stockData.unit ? stockData.unit.trim() : 'kg',
+      notes: stockData.notes !== undefined ? stockData.notes : undefined,
     };
 
     try {

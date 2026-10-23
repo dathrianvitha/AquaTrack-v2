@@ -2,6 +2,7 @@ import React from 'react';
 import { Stethoscope, Eye, Edit3, Trash2 } from 'lucide-react';
 import { Card } from '../Card';
 import { Button } from '../Button';
+import { normalizeMedicineType } from '../../constants/medicineTypes';
 
 /**
  * Reusable MedicineCard component matching the visual language, structure, padding,
@@ -30,7 +31,7 @@ export const MedicineCard = ({
     notes,
   } = record || {};
 
-  const displayMedName = medicineName || 'Treatment Record';
+  const displayMedName = normalizeMedicineType(record?.medicineType || medicineName) || 'Treatment Record';
 
   // Clean tank name & site name: e.g. "Tank T1 — Juvvalapalem"
   const rawTank = tankName || record?.tank?.name || record?.tank?.tankName || 'A1';

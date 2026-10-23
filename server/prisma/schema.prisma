@@ -107,6 +107,9 @@ model Stocking {
 
   costPerKg Float?
 
+  medicineType String?
+  notes        String?
+
   siteId String?
   site   Site?   @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
@@ -251,6 +254,7 @@ model Medicine {
   date DateTime
 
   medicineName String
+  medicineType String?
   purpose      String
   dosage       String
   quantity     Float
@@ -462,6 +466,7 @@ model StockTransfer {
   category     StockCategory
   quantity     Float
   unit         String        @default("kg")
+  medicineType String?
 
   fromSiteId String
   fromSite   Site   @relation("TransfersFrom", fields: [fromSiteId], references: [id], onDelete: Cascade)

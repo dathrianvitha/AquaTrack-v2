@@ -4,8 +4,45 @@ import {
     getMedicineById,
     updateMedicine,
     deleteMedicine,
-    getMedicineSummary
+    getMedicineSummary,
+    getMedicineStockAvailabilityService
 } from "../services/medicine.service.js";
+
+export const getMedicineStockAvailabilityController = async (req, res) => {
+    try {
+        const { siteId, medicineType } = req.query;
+
+        if (!siteId) {
+            return res.status(400).json({
+                success: false,
+                message: "siteId query parameter is required"
+            });
+        }
+
+        if (!medicineType) {
+            return res.status(400).json({
+                success: false,
+                message: "medicineType query parameter is required"
+            });
+        }
+
+        const data = await getMedicineStockAvailabilityService(
+            req.user.id,
+            siteId,
+            medicineType
+        );
+
+        return res.status(200).json({
+            success: true,
+            data
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
 
 export const createMedicineController = async (req, res) => {
 

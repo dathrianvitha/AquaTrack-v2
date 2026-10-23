@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MEDICINE_TYPES } from "../constants/medicineTypes.js";
 
 /*
  * Create Site-Level Stock
@@ -18,6 +19,16 @@ export const createStockingSchema = z.object({
             })
         }
     ),
+
+    medicineType: z
+        .string()
+        .optional()
+        .nullable(),
+
+    notes: z
+        .string()
+        .optional()
+        .nullable(),
 
     totalQuantity: z
         .number()
@@ -42,6 +53,20 @@ export const createStockingSchema = z.object({
         .optional()
 
 }).superRefine((data, ctx) => {
+
+    /*
+     * When Medicine is selected, Medicine Type is required
+     * and must match one of the 8 allowed types.
+     */
+    if (data.category === "MEDICINE") {
+        if (!data.medicineType || !MEDICINE_TYPES.includes(data.medicineType)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["medicineType"],
+                message: `Medicine Type is required. Must be one of: ${MEDICINE_TYPES.join(", ")}`
+            });
+        }
+    }
 
     /*
      * Seed must have cost per kg.
@@ -137,11 +162,27 @@ export const transferStockSchema = z.object({
 
     quantity: z
         .number()
-        .positive("Transfer quantity must be greater than 0")
+        .positive("Transfer quantity must be greater than 0"),
+
+    medicineType: z
+        .string()
+        .optional()
+        .nullable()
 }).refine(
     (data) => data.fromSiteId !== data.toSiteId,
     {
         message: "Source site and destination site must be different",
         path: ["toSiteId"]
+    }
+).refine(
+    (data) => {
+        if (data.category === "MEDICINE") {
+            return Boolean(data.medicineType && MEDICINE_TYPES.includes(data.medicineType));
+        }
+        return true;
+    },
+    {
+        message: `Medicine Type is required for Medicine transfer. Must be one of: ${MEDICINE_TYPES.join(", ")}`,
+        path: ["medicineType"]
     }
 );
