@@ -14,6 +14,7 @@ export const MEDICINE_TYPES = [
   'PP',
   'Teaseed Cake',
   'Decomposer',
+  'Other',
 ];
 
 export const MEDICINE_TYPE_OPTIONS = MEDICINE_TYPES.map((type) => ({

@@ -341,6 +341,7 @@ model PondLease {
 model OtherStock {
   id          String   @id @default(cuid())
   category    String
+  subcategory String?
   count       Int
   underRepair Int      @default(0)
   notes       String?
@@ -376,9 +377,10 @@ model OtherStockRepairLog {
 
 
 model OtherStockTransfer {
-  id       String @id @default(cuid())
-  category String
-  quantity Int
+  id          String  @id @default(cuid())
+  category    String
+  subcategory String?
+  quantity    Int
 
   fromSiteId String
   fromSite   Site   @relation("OtherTransfersFrom", fields: [fromSiteId], references: [id], onDelete: Cascade)

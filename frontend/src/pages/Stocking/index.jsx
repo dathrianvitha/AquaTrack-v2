@@ -49,6 +49,7 @@ import { subscribeToSyncBus } from '../../utils/syncBus';
 import { stockingService } from '../../services/stockingService';
 import { otherStockService } from '../../services/otherStockService';
 import { normalizeMedicineType } from '../../constants/medicineTypes';
+import { normalizeOtherStockCategory } from '../../constants/otherStockCategories';
 
 export default function Stocking() {
   const {
@@ -182,9 +183,10 @@ export default function Stocking() {
         id: `ost_${o.id}`,
         rawId: o.id,
         type: 'OTHER',
-        category: o.category,
+        category: normalizeOtherStockCategory(o.category),
+        subcategory: o.subcategory || null,
         quantity: o.quantity,
-        unit: '',
+        unit: 'units',
         fromSiteName: o.fromSite?.siteName || 'Source Site',
         toSiteName: o.toSite?.siteName || 'Destination Site',
         createdAt: o.createdAt
@@ -259,7 +261,8 @@ export default function Stocking() {
         rawId: o.id,
         type: 'OTHER',
         entryType: 'Other Stock',
-        category: o.category,
+        category: normalizeOtherStockCategory(o.category),
+        subcategory: o.subcategory || null,
         quantity: o.count,
         unit: 'units',
         siteName: o.site?.siteName || 'Site',
@@ -1090,7 +1093,14 @@ export default function Stocking() {
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h4 className="font-bold text-sm text-text-primary">{item.category}</h4>
+                        <h4 className="font-bold text-sm text-text-primary">
+                          {normalizeOtherStockCategory(item.category)}
+                        </h4>
+                        {item.subcategory && (
+                          <span className="text-xs font-semibold text-primary block mt-0.5">
+                            {item.subcategory}
+                          </span>
+                        )}
                         {itemSite && (
                           <span className="text-[10px] font-semibold text-text-secondary flex items-center gap-1 mt-0.5">
                             <MapPin className="w-3 h-3 text-primary shrink-0" /> {itemSite.siteName}
@@ -1102,7 +1112,11 @@ export default function Stocking() {
                           <Button
                             variant="outline"
                             size="xs"
-                            onClick={() => setOtherStockTransferSource({ site: itemSite, initialCategory: item.category })}
+                            onClick={() => setOtherStockTransferSource({
+                              site: itemSite,
+                              initialCategory: normalizeOtherStockCategory(item.category),
+                              initialSubcategory: item.subcategory || ''
+                            })}
                             icon={<ArrowRightLeft className="w-3 h-3" />}
                             className="font-semibold text-[11px] py-1 px-2 border-primary/30 text-primary hover:bg-primary-light/50"
                             title={`Transfer ${item.category} from ${itemSite.siteName}`}
@@ -1110,6 +1124,14 @@ export default function Stocking() {
                             Transfer
                           </Button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setViewingOtherStock(item)}
+                          title="View Other Stock Details & Notes"
+                          className="p-1 text-text-secondary hover:text-primary rounded hover:bg-primary-light transition-colors cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -1127,7 +1149,7 @@ export default function Stocking() {
                             setDeletingOtherStockId(item.id);
                             setIsOtherStockPasswordOpen(true);
                           }}
-                          title={isTransferred ? `Delete Transferred Stock (Return ${item.count} ${item.category} to ${item.transfer.fromSite?.siteName})` : "Delete Other Stock"}
+                          title={isTransferred ? `Delete Transferred Stock (Return ${item.count} ${normalizeOtherStockCategory(item.category)} to ${item.transfer.fromSite?.siteName})` : "Delete Other Stock"}
                           className="p-1 text-text-secondary hover:text-danger rounded hover:bg-danger-light transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1453,6 +1475,7 @@ export default function Stocking() {
         availableSites={sites}
         siteOtherStockList={otherStocks}
         initialCategory={otherStockTransferSource?.initialCategory}
+        initialSubcategory={otherStockTransferSource?.initialSubcategory}
         isSubmitting={isOtherStockTransferSubmitting}
       />
 
@@ -1470,7 +1493,7 @@ export default function Stocking() {
       <Modal
         isOpen={Boolean(viewingOtherStock)}
         onClose={() => setViewingOtherStock(null)}
-        title={`${viewingOtherStock?.category || 'Other Stock'} History & Details`}
+        title={`${normalizeOtherStockCategory(viewingOtherStock?.category) || 'Other Stock'} Details & History`}
         description={`Repair history and inventory details for ${viewingOtherStock?.site?.siteName || viewingOtherStock?.siteName || 'Site'}`}
         size="md"
       >
@@ -1484,7 +1507,23 @@ export default function Stocking() {
                 </div>
                 <div className="bg-surface p-3 rounded-lg border border-border/50">
                   <span className="text-[10px] text-text-secondary uppercase font-semibold block">Category</span>
-                  <span className="text-sm font-bold text-text-primary mt-0.5 block">{viewingOtherStock.category}</span>
+                  <span className="text-sm font-bold text-text-primary mt-0.5 block">{normalizeOtherStockCategory(viewingOtherStock.category)}</span>
+                </div>
+                {viewingOtherStock.subcategory && (
+                  <div className="bg-surface p-3 rounded-lg border border-border/50 col-span-2">
+                    <span className="text-[10px] text-text-secondary uppercase font-semibold block">Subcategory</span>
+                    <span className="text-sm font-bold text-primary mt-0.5 block">{viewingOtherStock.subcategory}</span>
+                  </div>
+                )}
+                <div className="bg-surface p-3 rounded-lg border border-border/50 col-span-2">
+                  <span className="text-[10px] text-text-secondary uppercase font-semibold block">Notes</span>
+                  <span className="text-sm font-normal text-text-primary mt-0.5 block">
+                    {viewingOtherStock.notes && viewingOtherStock.notes.trim() ? (
+                      viewingOtherStock.notes
+                    ) : (
+                      <span className="italic text-text-secondary">No notes added</span>
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1680,7 +1719,11 @@ export default function Stocking() {
                               : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                           }`}
                         >
-                          {log.category === 'MEDICINE' && log.medicineType ? `MEDICINE — ${log.medicineType}` : log.category}
+                          {log.category === 'MEDICINE' && log.medicineType
+                            ? `MEDICINE — ${log.medicineType}`
+                            : log.subcategory
+                            ? `${log.category} — ${log.subcategory}`
+                            : log.category}
                         </span>
                         <span className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
                           <Calendar className="w-3 h-3 text-text-secondary" /> {dateStr}
@@ -1692,7 +1735,7 @@ export default function Stocking() {
                       <div className="space-y-0.5">
                         <div className="text-sm font-extrabold text-text-primary flex items-center gap-2">
                           <span>
-                            {log.quantity} {log.unit} {log.category === 'MEDICINE' && log.medicineType ? log.medicineType : log.category}
+                            {log.quantity} {log.unit ? `${log.unit} ` : ''}{log.category === 'MEDICINE' && log.medicineType ? log.medicineType : log.subcategory ? `${log.category} (${log.subcategory})` : log.category}
                           </span>
                         </div>
                         <div className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">
@@ -1797,7 +1840,11 @@ export default function Stocking() {
                               : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                           }`}
                         >
-                          {log.category === 'MEDICINE' && log.medicineType ? `MEDICINE — ${log.medicineType}` : log.category}
+                          {log.category === 'MEDICINE' && log.medicineType
+                            ? `MEDICINE — ${log.medicineType}`
+                            : log.subcategory
+                            ? `${log.category} — ${log.subcategory}`
+                            : log.category}
                         </span>
                         <span className="text-[11px] font-semibold text-text-secondary flex items-center gap-1">
                           <Calendar className="w-3 h-3 text-text-secondary" /> {dateStr}
@@ -1812,7 +1859,7 @@ export default function Stocking() {
                       <div className="space-y-0.5">
                         <div className="text-sm font-extrabold text-text-primary flex items-center gap-2">
                           <span>
-                            {log.quantity} {log.unit ? `${log.unit} ` : ''}{log.category === 'MEDICINE' && log.medicineType ? log.medicineType : log.category}
+                            {log.quantity} {log.unit ? `${log.unit} ` : ''}{log.category === 'MEDICINE' && log.medicineType ? log.medicineType : log.subcategory ? `${log.category} (${log.subcategory})` : log.category}
                           </span>
                         </div>
                         <div className="text-xs text-text-secondary flex items-center gap-1.5 flex-wrap">

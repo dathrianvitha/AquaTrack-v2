@@ -13,7 +13,8 @@ export const MEDICINE_TYPES = [
     "PVC Lime",
     "PP",
     "Teaseed Cake",
-    "Decomposer"
+    "Decomposer",
+    "Other"
 ];
 
 export const LEGACY_MEDICINE_TYPES = [
