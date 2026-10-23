@@ -57,6 +57,9 @@ model Farm {
   otherTransfers OtherStockTransfer[]
   stockTransfers StockTransfer[]
 
+  historicalExpenses      HistoricalExpense[]
+  historicalImportBatches HistoricalImportBatch[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -86,6 +89,8 @@ model Site {
   otherStocks        OtherStock[]
   otherTransfersFrom OtherStockTransfer[]  @relation("OtherTransfersFrom")
   otherTransfersTo   OtherStockTransfer[]  @relation("OtherTransfersTo")
+
+  historicalExpenses HistoricalExpense[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -385,6 +390,51 @@ model OtherStockTransfer {
   transferDate DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model HistoricalImportBatch {
+  id          String   @id @default(cuid())
+  fileName    String
+  fileHash    String?
+  recordCount Int
+  totalAmount Float
+  importedAt  DateTime @default(now())
+
+  farmId String
+  farm   Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  expenses HistoricalExpense[]
+
+  createdAt DateTime @default(now())
+
+  @@index([farmId])
+  @@index([fileHash])
+}
+
+model HistoricalExpense {
+  id             String   @id @default(cuid())
+  date           DateTime
+  amount         Float
+  notes          String?
+  sourceArea     String?
+  sourceCategory String?
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  farmId String
+  farm   Farm   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  importBatchId String?
+  importBatch   HistoricalImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([farmId])
+  @@index([siteId])
+  @@index([date])
+  @@index([importBatchId])
 }
 
 model Netting {
